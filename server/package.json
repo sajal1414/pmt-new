@@ -1,0 +1,29 @@
+{
+  "name": "atlas-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hazdemy API (Express + PostgreSQL, or a JSON file when DATABASE_URL is not set)",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "reset": "node src/reset.js",
+    "db:export": "node src/dbtool.js export",
+    "db:import": "node src/dbtool.js import"
+  },
+  "dependencies": {
+    "express": "4.22.3",
+    "jszip": "3.10.2",
+    "mammoth": "1.13.0",
+    "multer": "2.5.0",
+    "nodemailer": "^10.1.7",
+    "pdfkit": "0.15.0",
+    "pg": "8.13.1",
+    "word-extractor": "1.0.4",
+    "xlsx": "0.18.5"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}

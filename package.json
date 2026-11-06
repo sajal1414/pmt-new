@@ -1,0 +1,17 @@
+{
+  "name": "nfolks-atlas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hazdemy learning services app: React (Vite) client + Node.js (Express) API",
+  "scripts": {
+    "setup": "npm install && npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -n api,web -c blue,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start",
+    "production": "npm run build && npm start",
+    "reset-data": "npm --prefix server run reset"
+  },
+  "devDependencies": {
+    "concurrently": "9.1.0"
+  }
+}
