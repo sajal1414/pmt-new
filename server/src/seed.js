@@ -52,7 +52,8 @@ export function seed() {
     { id: 'l2', title: 'Building your first ETL flow', mins: 90, video: '', attachment: 'https://example.com/labs/ds-lab1.pdf', article: 'Guided lab: connect sources, transform and load to a target table.' },
     { id: 'l3', title: 'Parallel jobs, partitioning and performance', mins: 75, video: '', attachment: '', article: '' }
   ];
-  const users = [{ id: 'u1', name: 'Hazdemy Admin', email: 'admin@hazdemy.example', role: 'Admin', status: 'Active', instructorId: '' }]
+  const adminEmail = String(process.env.ATLAS_ADMIN_EMAIL || 'admin@hazdemy.example').trim().toLowerCase();
+  const users = [{ id: 'u1', name: 'Hazdemy Admin', email: adminEmail, role: 'Admin', status: 'Active', instructorId: '' }]
     .concat(instructors.map((x, i) => ({ id: 'u' + (i + 2), name: x.name, email: x.email, role: 'Instructor', status: i % 3 === 0 ? 'Password pending' : 'Active', instructorId: x.id })));
   const now = Date.now();
   return {
