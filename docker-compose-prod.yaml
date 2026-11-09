@@ -16,7 +16,6 @@ services:
       - ATLAS_ADMIN_EMAIL=admin@nfolks.com
       - ATLAS_ADMIN_PASSWORD=Admin@Nfolks2026!
       - ATLAS_TRUST_PROXY=1
-      - ATLAS_SAMPLE_DATA=1
     volumes:
       - atlas_data:/app/server/data
 
