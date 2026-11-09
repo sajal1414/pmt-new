@@ -11,7 +11,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - DATABASE_URL=postgresql://postgres:Nfolks12345@database-1.cqydbemkscxr.us-east-2.rds.amazonaws.com:5432/pmt_new
+      - DATABASE_URL=postgresql://postgres:Nfolks12345@database-1.cqydbemkscxr.us-east-2.rds.amazonaws.com:5432/pmt_new?sslmode=require
       - ATLAS_SECRET=c8d4850fa1e57c6b45a6c11db3e84e55e6c1e3d085957b420afc3c6f0927c39a
       - ATLAS_ADMIN_EMAIL=admin@nfolks.com
       - ATLAS_ADMIN_PASSWORD=Admin@Nfolks2026!

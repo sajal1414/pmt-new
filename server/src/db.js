@@ -32,7 +32,8 @@ export async function init() {
   const url = process.env.DATABASE_URL;
   if (!url) { load(); return; }
   const { default: pg } = await import('pg');
-  pool = new pg.Pool({ connectionString: url, max: 4, idleTimeoutMillis: 30000 });
+  const ssl = url.includes('sslmode=') || url.includes('rds.amazonaws.com') || process.env.PGSSLMODE ? { rejectUnauthorized: false } : undefined;
+  pool = new pg.Pool({ connectionString: url, ssl, max: 4, idleTimeoutMillis: 30000 });
   pool.on('error', (e) => console.error('PostgreSQL connection error:', e.message));
   const enc = (await pool.query('show server_encoding')).rows[0].server_encoding;
   if (enc !== 'UTF8') throw new Error(`The PostgreSQL database uses ${enc} text encoding; Hazdemy needs UTF8. Create the database with ENCODING 'UTF8'.`);
