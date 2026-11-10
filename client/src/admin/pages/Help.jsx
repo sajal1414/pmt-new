@@ -18,7 +18,7 @@ const GUIDES = [
   ['cap', 'Learners & enrollments', [
     ['How do I enroll learners?', <>On <Link to="/enrollments">Enrollments</Link> or <Link to="/assignments">Assignments</Link>, click <b>Enroll learners</b> / <b>New assignment</b>, pick the course and paste their emails. A deadline is optional.</>],
     ['When is a certificate issued?', <>Automatically when a learner completes every lesson. All of them are on <Link to="/certificates">Certificates</Link> as PDFs.</>],
-    ['How do I handle cash-on-delivery payments?', <>On <Link to="/payments">Payments</Link>, mark a pending COD payment as paid once the money is in. Turn COD off in <Link to="/settings">Site Settings</Link> when you go live with Razorpay.</>]
+    ['How do learners pay?', <>Every course is paid through Stripe: learners pay on Stripe’s secure page and are enrolled as soon as Stripe confirms the payment. A course without a price shows <b>Ask for details</b> instead; answer those on <Link to="/requests">Requests</Link>. See every payment on <Link to="/payments">Payments</Link>.</>]
   ]],
   ['star', 'Ratings & reports', [
     ['Where do ratings come from?', <>Learners rate the course and the instructor after they start a course. Every rating feeds the course, instructor and dashboard figures straight away. Moderate them on <Link to="/reviews">Reviews &amp; Ratings</Link>.</>],

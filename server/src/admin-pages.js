@@ -223,7 +223,7 @@ export function mountAdminPages(app, { wrap, HttpError, load, save, uid, log, ba
     // enrollments that recorded an amount but came from an import or sample data, so have no payment record
     const recorded = C.d.enrollments.filter((e) => +e.amount > 0 && !e.paymentId).length;
     const sum = (st) => money(list.filter((p) => st.includes(p.status)).reduce((a, p) => a + (+p.amount || 0), 0));
-    return { config: { razorpay: cfg.razorpay, cod: cfg.cod, currency: cfg.currency }, payments: list, totals: { paid: sum(['paid']), pending: sum(['pending', 'created']), refunded: sum(['refunded']), failed: list.filter((p) => p.status === 'failed').length }, otherEnrollments: recorded };
+    return { config: { stripe: cfg.stripe, testMode: cfg.testMode, webhook: cfg.webhook, currency: cfg.currency }, payments: list, totals: { paid: sum(['paid']), pending: sum(['pending', 'created']), refunded: sum(['refunded']), failed: list.filter((p) => p.status === 'failed').length }, otherEnrollments: recorded };
   }));
   app.post('/api/admin/payments/:id/status', wrap((req) => {
     const { d } = ctx(), p = (d.payments || []).find((x) => x.id === req.params.id), status = String(req.body.status || '');
@@ -252,11 +252,11 @@ export function mountAdminPages(app, { wrap, HttpError, load, save, uid, log, ba
   }));
 
   /* ---------- site settings ---------- */
-  app.get('/api/admin/settings', wrap(() => { const { d } = ctx(), cfg = payConfig(d); return { settings: settingsOf(d), currencies: CURRENCIES, env: { razorpay: cfg.razorpay, envCurrency: (process.env.PAYMENT_CURRENCY || 'USD').toUpperCase(), envCod: process.env.PAYMENT_COD !== 'false' }, data: { file: path.basename(dataFile), courses: d.courses.length, instructors: d.instructors.length, users: d.users.length, learners: d.students.length } }; }));
+  app.get('/api/admin/settings', wrap(() => { const { d } = ctx(), cfg = payConfig(d); return { settings: settingsOf(d), currencies: CURRENCIES, env: { stripe: cfg.stripe, testMode: cfg.testMode, webhook: cfg.webhook, envCurrency: (process.env.PAYMENT_CURRENCY || 'USD').toUpperCase()}, data: { file: path.basename(dataFile), courses: d.courses.length, instructors: d.instructors.length, users: d.users.length, learners: d.students.length } }; }));
   app.put('/api/admin/settings', wrap((req) => {
     const { d } = ctx(), b = req.body || {}, f = {}, next = settingsOf(d);
     for (const k of ['siteName', 'supportEmail', 'supportPhone']) if (k in b) next[k] = String(b[k] ?? '').trim().slice(0, 120);
-    for (const k of ['cod', 'learnerSignup', 'instructorSignup', 'allowRemember', 'emailOn']) if (k in b) next[k] = !!b[k];
+    for (const k of ['learnerSignup', 'instructorSignup', 'allowRemember', 'emailOn']) if (k in b) next[k] = !!b[k];
     const int = (k, lo, hi, msg) => { if (!(k in b)) return; const v = Math.round(+b[k]); if (!(v >= lo && v <= hi)) f[k] = msg; else next[k] = v; };
     int('sessionHours', 1, 72, 'Use 1 to 72 hours.'); int('lockAfter', 3, 20, 'Use 3 to 20 attempts.'); int('lockMinutes', 1, 240, 'Use 1 to 240 minutes.');
     if ('learnerStatuses' in b) next.learnerStatuses = [...new Set((Array.isArray(b.learnerStatuses) ? b.learnerStatuses : []).map((x) => String(x).trim().slice(0, 60)).filter(Boolean))].slice(0, 50);

@@ -4,7 +4,7 @@ import { paymentConfig } from './payments.js';
 export const DEFAULT_SETTINGS = {
   siteName: 'Hazdemy', supportEmail: '', supportPhone: '',
   currency: '', // empty: use PAYMENT_CURRENCY from server/.env
-  cod: true, learnerSignup: true, instructorSignup: true,
+  learnerSignup: true, instructorSignup: true,
   sessionHours: 12, allowRemember: true, lockAfter: 5, lockMinutes: 15,
   learnerStatuses: ['Available', 'Published'], // course statuses learners can see in Explore and enroll in
   emailOn: false // nothing is emailed to anyone until an admin turns this on (the test email still works)
@@ -15,10 +15,10 @@ export const settingsOf = (d) => ({ ...DEFAULT_SETTINGS, ...(d.settings || {}) }
 /** Whether learners can see (and enroll in) course `c`: its status is one the admin ticked in Site Settings. */
 export const learnerSees = (d, c) => settingsOf(d).learnerStatuses.includes(c?.status);
 
-/** Payment options after site settings: settings can switch COD off or pick the currency; keys stay in .env. */
+/** Payment options after site settings: settings can pick the currency; keys stay in .env. */
 export function payConfig(d) {
   const c = paymentConfig(), s = settingsOf(d);
-  return { ...c, currency: s.currency || c.currency, cod: c.cod && s.cod !== false };
+  return { ...c, currency: s.currency || c.currency };
 }
 
 /** Announcements an admin sent to everyone, learners or instructors (newest first). */

@@ -2,7 +2,8 @@
 // (user.studentId); admins can look at any student with ?as=<studentId>.
 import { isoDay, certNumber, certSigners } from './learning.js';
 import { certificatePdf } from './pdf.js';
-import { createOrder, verifySignature } from './payments.js';
+import { createCheckout, getCheckout, verifyWebhook, toMinor } from './payments.js';
+import { isHttps } from './security.js';
 import { payConfig, announcementsFor, learnerSees, settingsOf } from './settings.js';
 import { sendLater } from './mail.js';
 import { isHtml } from './richtext.js';
@@ -19,6 +20,12 @@ export function ensureStudent(d, { email, name }, uid) {
   else if (name && s.sample) { s.name = name; }
   return s;
 }
+
+// The Stripe webhook needs the raw request body, so index.js mounts it before the JSON parser; mountLearn fills in the handler.
+let stripeWebhook = null;
+export const handleStripeWebhook = (req, res) => (stripeWebhook ? stripeWebhook(req, res) : res.status(503).json({ error: 'Starting up, try again.' }));
+// this site's own address, for Stripe's return links (the page the learner is on: origin, or the host behind a proxy)
+const siteOf = (req) => (req.headers.origin || `${isHttps(req) ? 'https' : 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`).replace(/\/$/, '');
 
 export function mountLearn(app, { wrap, HttpError, load, save, uid, log }) {
   /** The student this request is about: the signed-in learner, or ?as= for admins. */
@@ -196,7 +203,8 @@ export function mountLearn(app, { wrap, HttpError, load, save, uid, log }) {
   }));
   /* ---------- requests: a new batch, or a custom version for a company ---------- */
   // batch: a new batch of the course · change: move my batch to another date or time · custom: a version for my company
-  const REQ_KINDS = ['batch', 'change', 'custom'], MODES = ['Virtual', 'In person', 'Hybrid'], TIMES = ['Any time', 'Morning', 'Afternoon', 'Evening'];
+  // details: the price and details of a course that has no price yet
+  const REQ_KINDS = ['batch', 'change', 'custom', 'details'], MODES = ['Virtual', 'In person', 'Hybrid'], TIMES = ['Any time', 'Morning', 'Afternoon', 'Evening'];
   const myRequest = (r) => ({ id: r.id, kind: r.kind, at: r.at, courseId: r.courseId, course: r.course, preferredStart: r.preferredStart, timeZone: r.timeZone, mode: r.mode,
     people: r.people, company: r.company, message: r.message, status: r.status, reply: r.reply || '', handledAt: r.handledAt || '', timeOfDay: r.timeOfDay || '', fromBatch: r.fromBatch || null });
   app.post('/api/learn/requests', wrap((req, res) => {
@@ -215,17 +223,19 @@ export function mountLearn(app, { wrap, HttpError, load, save, uid, log }) {
     const people = Math.max(1, Math.min(1000, Math.round(+b.people || 1)));
     if (Object.keys(f).length) throw new HttpError(422, 'Fix the highlighted fields.', f);
     if ((d.requests || []).some((r) => r.studentId === s.id && r.courseId === c.id && r.kind === kind && r.status === 'New'))
-      throw new HttpError(409, `You’ve already asked for ${kind === 'batch' ? 'a batch' : kind === 'change' ? 'a batch change' : 'a custom version'} of this course. We’ll get back to you soon.`);
+      throw new HttpError(409, kind === 'details' ? 'You’ve already asked about this course. We’ll get back to you soon.'
+        : `You’ve already asked for ${kind === 'batch' ? 'a batch' : kind === 'change' ? 'a batch change' : 'a custom version'} of this course. We’ll get back to you soon.`);
     const r = { id: uid('rq'), kind, at: new Date().toISOString(), studentId: s.id, name: s.name, email: s.email, courseId: c.id, course: `${c.code} · ${c.name}`,
       preferredStart, timeZone: String(b.timeZone || '').slice(0, 60), mode: MODES.includes(b.mode) ? b.mode : 'Virtual', people, company,
       message: String(b.message || '').trim().slice(0, 2000), status: 'New',
       ...(kind === 'change' ? { timeOfDay: TIMES.includes(b.timeOfDay) ? b.timeOfDay : 'Any time', fromBatch: { id: from.id, startDate: from.startDate, endDate: from.endDate, startTime: from.startTime, endTime: from.endTime, timeZone: from.timeZone } } : {}) };
     (d.requests ||= []).unshift(r);
-    log(`${s.name} asked for ${kind === 'batch' ? `a batch of ${c.code} from ${preferredStart}` : kind === 'change' ? `a batch change on ${c.code} (from ${preferredStart})` : `a custom version of ${c.code} for ${company}`}`);
+    log(`${s.name} asked for ${kind === 'batch' ? `a batch of ${c.code} from ${preferredStart}` : kind === 'change' ? `a batch change on ${c.code} (from ${preferredStart})` : kind === 'details' ? `the price and details of ${c.code}` : `a custom version of ${c.code} for ${company}`}`);
     save(); res.status(201);
+    const what = kind === 'batch' ? 'a new batch' : kind === 'change' ? 'a batch change' : kind === 'details' ? 'the price and details' : `a custom version for ${company}`;
     const S = settingsOf(d), to = S.supportEmail || d.users.filter((u) => u.role === 'Admin').map((u) => u.email);
-    if (S.emailOn) sendLater({ to, replyTo: s.email, site: S.siteName, subject: `New request: ${kind === 'batch' ? 'a new batch' : kind === 'change' ? 'a batch change' : `a custom version for ${company}`} (${c.code})`,
-      text: [`${s.name} (${s.email}) asked for ${kind === 'batch' ? 'a new batch' : kind === 'change' ? 'a batch change' : `a custom version for ${company}`} of ${c.code} ${c.name}.`,
+    if (S.emailOn) sendLater({ to, replyTo: s.email, site: S.siteName, subject: `New request: ${what} (${c.code})`,
+      text: [`${s.name} (${s.email}) asked for ${what} of ${c.code} ${c.name}.`,
         preferredStart ? `Preferred start: ${preferredStart}` : '', kind !== 'change' ? `People: ${people}` : '', `Delivery: ${r.mode}`, r.message ? `\n“${r.message}”` : '', '', 'Answer it on the Requests page.'].filter(Boolean).join('\n') });
     return myRequest(r);
   }));
@@ -272,7 +282,7 @@ export function mountLearn(app, { wrap, HttpError, load, save, uid, log }) {
     return { progress: e.progress, done: e.done, completed: e.completed, reviewNeeded: finished && !hasReview, certificate: finished && hasReview ? certNumber(e) : '' };
   }));
 
-  /* ---------- checkout: free, COD (testing) or Razorpay ---------- */
+  /* ---------- checkout: Stripe only; every course is paid ---------- */
   app.get('/api/learn/payments/config', wrap(() => payConfig(load())));
   const buyable = (d, s, courseId) => {
     const c = d.courses.find((x) => x.id === courseId);
@@ -291,42 +301,74 @@ export function mountLearn(app, { wrap, HttpError, load, save, uid, log }) {
     return b;
   };
   const book = (b, s, e) => { if (!b) return; e.batchId = b.id; const m = String(s.email).toLowerCase(); if (!(b.learners ||= []).includes(m)) b.learners.push(m); };
-  const onBatch = (b) => (b ? ` (batch starting ${b.startDate})` : '');
   app.post('/api/learn/checkout', wrap(async (req, res) => {
     const { d, s } = learner(req), c = buyable(d, s, String(req.body.courseId || '')), cfg = payConfig(d), price = +c.price || 0;
     const b = chosenBatch(c, req.body.batchId);
     d.payments ||= [];
-    if (!price) { const e = enroll(d, s, c, { source: 'purchase' }); book(b, s, e); log(`${s.name} enrolled in ${c.name}${onBatch(b)} (free)`); save(); res.status(201); return { enrolled: true, enrollmentId: e.id }; }
-    if (req.body.method === 'cod') {
-      if (!cfg.cod) throw new HttpError(400, 'Cash on delivery isn’t available.');
-      const pay = { id: uid('pay'), studentId: s.id, courseId: c.id, amount: price, currency: cfg.currency, method: 'cod', status: 'pending', at: new Date().toISOString() };
-      const e = enroll(d, s, c, { source: 'purchase', amount: price, paymentId: pay.id, paymentStatus: 'pending' });
-      book(b, s, e); pay.enrollmentId = e.id; d.payments.push(pay);
-      log(`${s.name} enrolled in ${c.name}${onBatch(b)} (COD, payment pending)`); save(); res.status(201);
-      return { enrolled: true, enrollmentId: e.id, payment: pay };
-    }
-    if (req.body.method !== 'razorpay') throw new HttpError(400, 'Choose a payment method.');
-    if (!cfg.razorpay) throw new HttpError(400, 'Online payment isn’t set up yet. Use COD (testing) for now.');
-    let order;
-    try { order = await createOrder(price, `${c.code}-${s.id}`, { courseId: c.id, studentId: s.id }, cfg.currency); } catch (x) { throw new HttpError(502, x.message); }
-    d.payments.push({ id: uid('pay'), studentId: s.id, courseId: c.id, batchId: b?.id || '', amount: price, currency: cfg.currency, method: 'razorpay', status: 'created', orderId: order.id, at: new Date().toISOString() });
-    save();
-    return { orderId: order.id, amount: order.amount, currency: order.currency, keyId: cfg.keyId, course: c.name, name: s.name, email: s.email };
+    // every course is paid: one without a price can't be bought yet, the learner asks for details instead
+    if (!(price > 0)) throw new HttpError(422, 'This course doesn’t have a price yet. Use “Ask for details” and we’ll send you the price.');
+    // Stripe is the only way to pay: there is no cash on delivery or pay-later
+    if (!cfg.stripe) throw new HttpError(503, 'Online payment isn’t set up yet. Please try again later or contact us.');
+    // Stripe sends the learner back to the course page; {CHECKOUT_SESSION_ID} is filled in by Stripe
+    const back = `${siteOf(req)}/learn/courses/${encodeURIComponent(c.id)}`, as = req.user.role === 'Admin' ? `as=${encodeURIComponent(s.id)}&` : '';
+    const pay = { id: uid('pay'), studentId: s.id, courseId: c.id, batchId: b?.id || '', amount: price, currency: cfg.currency, method: 'stripe', status: 'created', at: new Date().toISOString() };
+    let session;
+    try {
+      session = await createCheckout({ amount: price, currency: cfg.currency, title: `${c.code ? c.code + ' · ' : ''}${c.name}`, description: b ? `Batch starting ${b.startDate}` : '',
+        email: s.email, successUrl: `${back}?${as}paid={CHECKOUT_SESSION_ID}`, cancelUrl: `${back}?${as}payment=cancelled`,
+        metadata: { paymentId: pay.id, courseId: c.id, studentId: s.id } });
+    } catch (x) { throw new HttpError(502, x.message); }
+    pay.orderId = session.id;
+    d.payments.push(pay); save();
+    return { url: session.url };
   }));
-  app.post('/api/learn/checkout/verify', wrap((req, res) => {
-    const { d, s } = learner(req);
-    const { orderId, paymentId, signature } = req.body || {};
-    const pay = (d.payments || []).find((p) => p.orderId === orderId && p.studentId === s.id);
+
+  /**
+   * Records a paid Stripe Checkout Session: marks the payment paid and enrolls the learner (on their batch).
+   * Safe to call twice (the return page and the webhook both do): the second call changes nothing.
+   */
+  const settle = (d, pay, session) => {
+    if (pay.status === 'paid') return d.enrollments.find((x) => x.id === pay.enrollmentId);
+    // the money in must be what this payment asked for, in its currency
+    if (session.payment_status !== 'paid' || session.amount_total !== toMinor(pay.amount, pay.currency) || String(session.currency).toUpperCase() !== String(pay.currency).toUpperCase()) return null;
+    const s = d.students.find((x) => x.id === pay.studentId), c = d.courses.find((x) => x.id === pay.courseId);
+    if (!s || !c) return null;
+    let e = d.enrollments.find((x) => x.studentId === s.id && x.courseId === c.id);
+    if (!e) { e = enroll(d, s, c, { source: 'purchase', amount: pay.amount, paymentId: pay.id, paymentStatus: 'paid' }); book((c.schedules || []).find((x) => x.id === pay.batchId), s, e); }
+    Object.assign(pay, { status: 'paid', paymentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || '', enrollmentId: e.id, paidAt: new Date().toISOString() });
+    log(`${s.name} bought ${c.name} (${pay.currency} ${pay.amount})`); save();
+    return e;
+  };
+  // back from Stripe: ask Stripe (never the browser) whether the session was paid
+  app.post('/api/learn/checkout/verify', wrap(async (req, res) => {
+    const { d, s } = learner(req), sessionId = String(req.body?.sessionId || '');
+    const pay = (d.payments || []).find((p) => p.method === 'stripe' && p.orderId === sessionId && p.studentId === s.id);
     if (!pay) throw new HttpError(404, 'Payment not found.');
     if (pay.status === 'paid') return { enrolled: true, enrollmentId: pay.enrollmentId };
-    if (!verifySignature(orderId, paymentId, signature)) { pay.status = 'failed'; save(); throw new HttpError(400, 'The payment couldn’t be verified. You haven’t been charged for an enrollment; contact support if money left your account.'); }
-    const c = d.courses.find((x) => x.id === pay.courseId);
-    let e = d.enrollments.find((x) => x.studentId === s.id && x.courseId === pay.courseId);
-    if (!e) { e = enroll(d, s, c, { source: 'purchase', amount: pay.amount, paymentId: pay.id, paymentStatus: 'paid' }); book((c.schedules || []).find((x) => x.id === pay.batchId), s, e); }
-    Object.assign(pay, { status: 'paid', paymentId, enrollmentId: e.id, paidAt: new Date().toISOString() });
-    log(`${s.name} bought ${c.name} (${pay.currency} ${pay.amount})`); save(); res.status(201);
+    let session;
+    try { session = await getCheckout(sessionId); } catch (x) { throw new HttpError(502, x.message); }
+    const e = settle(d, pay, session);
+    if (!e) {
+      if (session.status === 'expired') { pay.status = 'failed'; save(); }
+      throw new HttpError(402, session.status === 'open' ? 'The payment isn’t finished yet. Complete it on the Stripe page, or try again.' : 'The payment didn’t go through. You haven’t been enrolled; contact support if money left your account.');
+    }
+    res.status(201);
     return { enrolled: true, enrollmentId: e.id };
   }));
+  // Stripe → server: the signed webhook (raw body, set up in index.js before the JSON parser and sign-in check)
+  stripeWebhook = (req, res) => {
+    const event = verifyWebhook(req.body, req.get('stripe-signature'));
+    if (!event) return res.status(400).json({ error: 'Invalid signature.' });
+    const session = event.data?.object || {};
+    if (['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.expired', 'checkout.session.async_payment_failed'].includes(event.type)) {
+      const d = load(), pay = (d.payments || []).find((p) => p.method === 'stripe' && p.orderId === session.id);
+      if (pay && pay.status !== 'paid') {
+        if (event.type.endsWith('expired') || event.type.endsWith('failed')) { pay.status = 'failed'; save(); }
+        else settle(d, pay, session);
+      }
+    }
+    res.json({ received: true });
+  };
 
   /* ---------- wishlist ---------- */
   app.post('/api/learn/wishlist/:courseId', wrap((req) => {

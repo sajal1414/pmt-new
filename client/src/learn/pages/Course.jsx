@@ -8,7 +8,7 @@ import { useToast } from '../../lib/store.jsx';
 import { isURL } from '../../lib/constants.js';
 import BatchList from '../../components/BatchList.jsx';
 import { Loading, ErrorNote, shortDate, ago } from '../shared.jsx';
-import { useLearn, useLearnData, usePrice, Checkout, CourseThumb, LevelBadge, Stars, hoursLabel, ReviewForm } from '../lib.jsx';
+import { useLearn, useLearnData, usePrice, hasPrice, Checkout, CourseThumb, LevelBadge, Stars, hoursLabel, ReviewForm } from '../lib.jsx';
 import { MyRequests, RequestDialog } from '../RequestDialog.jsx';
 
 const fmtMins = (m) => (!m ? '' : m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`);
@@ -33,7 +33,7 @@ export default function Course() {
   const [params, setParams] = useSearchParams();
   const { data: c, loading, error, reload, setData } = useLearnData(`/api/learn/courses/${id}`);
   const { data: myReqs, reload: reloadReqs } = useLearnData('/api/learn/requests', { course: id });
-  const [req, setReq] = useState(''); // 'batch' | 'change' | 'custom' while asking
+  const [req, setReq] = useState(''); // 'batch' | 'change' | 'custom' | 'details' while asking
   const [buy, setBuy] = useState(null); // { batch } while the checkout is open
   const [tab, setTab] = useState('lesson');
   const [busy, setBusy] = useState(false);
@@ -42,6 +42,25 @@ export default function Course() {
   const done = useMemo(() => new Set(c?.enrollment?.done || []), [c]);
   const current = c?.lessons.find((l) => l.id === lessonId) || c?.lessons.find((l) => !done.has(l.id)) || c?.lessons[0];
   const idx = c && current ? c.lessons.indexOf(current) : -1;
+  // back from Stripe: ?paid=<session> is confirmed with the server (which asks Stripe), ?payment=cancelled just says so
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    const paid = params.get('paid'), cancelled = params.get('payment') === 'cancelled';
+    if (!paid && !cancelled) return;
+    setParams((p) => { const n = new URLSearchParams(p); n.delete('paid'); n.delete('payment'); return n; }, { replace: true });
+    if (cancelled) { toast('Payment cancelled. You haven’t been charged.'); return; }
+    setConfirming(true);
+    api.post(q('/api/learn/checkout/verify'), { sessionId: paid })
+      .then(() => { toast('Payment received. You’re enrolled!'); reload(); reloadSummary(); })
+      .catch((x) => toast(x.message))
+      .finally(() => setConfirming(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Ask for details" on a course card opens the question form here
+  useEffect(() => {
+    if (!c || params.get('ask') !== 'details') return;
+    if (!c.enrollment && !hasPrice(c)) setReq('details');
+    setParams((p) => { const n = new URLSearchParams(p); n.delete('ask'); return n; }, { replace: true });
+  }, [c?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = params.get('tab'); setTab(t === 'reviews' || t === 'schedule' ? t : enrolled && c?.lessons.length ? 'lesson' : 'overview'); }, [enrolled, c?.lessons.length]);
   const open = (l) => { setParams((p) => { const n = new URLSearchParams(p); n.set('lesson', l.id); return n; }, { replace: true }); setTab('lesson'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const mark = async (l, value, next) => {
@@ -70,6 +89,7 @@ export default function Course() {
     if (e) return e.batch?.id === b.id ? <span className="pill ok"><Icon name="check" small />Your batch</span> : null;
     const full = b.status === 'Full' || (b.seats !== '' && b.seats != null && b.booked >= +b.seats);
     return full ? <span className="pill red">Full</span>
+      : !hasPrice(c) ? <button type="button" className="btn sm primary" onClick={() => setReq('details')}><Icon name="msg" small />Ask for details</button>
       : <button type="button" className="btn sm primary" onClick={() => setBuy({ batch: b })}>Enroll in this batch<Icon name="arrow" small /></button>;
   };
   // booked on a batch: a lesson can be marked done from the day it's taught (its date, when that's still to come)
@@ -97,10 +117,12 @@ export default function Course() {
           {e && <div className="l-progress"><span>Your Progress</span><span className="tr"><i style={{ width: `${Math.max(e.progress, 1.5)}%` }} /></span><b className="num">{e.progress}%</b></div>}
         </div>
         <div className="l-buy">
-          {e ? (needsReview ? <button className="btn primary" onClick={() => setTab('reviews')}><Icon name="star" small />Review to get certificate</button>
+          {confirming ? <span className="note" role="status">Confirming your payment…</span> : e ?(needsReview ? <button className="btn primary" onClick={() => setTab('reviews')}><Icon name="star" small />Review to get certificate</button>
             : certId ? <a className="btn primary" href={q(`/api/learn/certificates/${certId}/pdf`)} download><Icon name="award" small />Download certificate</a>
             : c.lessons.length ? <button className="btn primary" onClick={() => open(current)}><Icon name="play" small />{e.progress ? 'Continue' : 'Start Course'}</button> : null)
-            : (<><b className="l-price big">{price(c.price)}</b>{c.schedule?.length
+            : (<><b className={`l-price big${hasPrice(c) ? '' : ' ask'}`}>{price(c.price)}</b>{!hasPrice(c)
+              ? <button className="btn primary" onClick={() => setReq('details')}><Icon name="msg" small />Ask for details</button>
+              : c.schedule?.length
               ? <button className="btn primary" onClick={() => setTab('schedule')}><Icon name="cal" small />Choose a batch</button>
               : <button className="btn primary" onClick={() => setBuy({})}>Enroll now<Icon name="arrow" small /></button>}</>)}
         </div>
@@ -194,7 +216,7 @@ export default function Course() {
           {e && <section className="card">{needsReview && <p className="l-revgate"><Icon name="award" small />Submit your review to unlock your certificate.</p>}<ReviewBox courseId={c.id} instructor={c.instructor?.name} mine={c.myReview} onSaved={() => { if (needsReview) toast('Thanks for your review! Your certificate is ready.'); reload(); reloadSummary(); }} /></section>}
         </div>
       )}
-      <Checkout course={buy ? { ...c, lessons: c.lessons.length } : null} batch={buy?.batch} onClose={() => setBuy(null)} onDone={reload} />
+      <Checkout course={buy ? { ...c, lessons: c.lessons.length } : null} batch={buy?.batch} onClose={() => setBuy(null)} />
       <RequestDialog kind={req} course={c} current={(c.schedule || []).find((b) => b.id === e?.batch?.id) || e?.batch} onClose={() => setReq('')} onDone={reloadReqs} />
     </>
   );

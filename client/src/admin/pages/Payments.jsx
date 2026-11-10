@@ -6,7 +6,7 @@ import { api } from '../../api.js';
 import { useToast } from '../../lib/store.jsx';
 import { useAdminData, useTable, Loading, ErrorNote, Stats, Tag, SearchBox, num, fmtMoney, fmtDay } from '../lib.jsx';
 
-const METHOD = { cod: 'Cash on delivery', razorpay: 'Razorpay' };
+const METHOD = { stripe: 'Stripe', cod: 'Cash on delivery (old)', razorpay: 'Razorpay (old)' };
 
 export default function Payments() {
   const toast = useToast();
@@ -42,11 +42,11 @@ export default function Payments() {
       {!data ? !error && <Loading /> : (<>
         <div className="am-paycfg">
           <span><Icon name="dollar" small />Currency <b>{cur}</b></span>
-          <span className={data.config.razorpay ? 'ok' : 'off'}><Icon name={data.config.razorpay ? 'check' : 'x'} small />Razorpay {data.config.razorpay ? 'connected' : 'not set up (add keys to server/.env)'}</span>
-          <span className={data.config.cod ? 'ok' : 'off'}><Icon name={data.config.cod ? 'check' : 'x'} small />Cash on delivery {data.config.cod ? 'on' : 'off'}</span>
+          <span className={data.config.stripe ? 'ok' : 'off'}><Icon name={data.config.stripe ? 'check' : 'x'} small />Stripe {data.config.stripe ? `connected${data.config.testMode ? ' (test mode)' : ''}` : 'not set up (add keys to server/.env)'}</span>
+          {data.config.stripe && <span className={data.config.webhook ? 'ok' : 'off'}><Icon name={data.config.webhook ? 'check' : 'x'} small />Stripe webhook {data.config.webhook ? 'on' : 'not set up'}</span>}
           <Link className="linkbtn" to="/settings">Payment settings →</Link>
         </div>
-        <Stats items={[['Received', fmtMoney(data.totals.paid, cur), 'ok'], ['Pending (COD / unpaid)', fmtMoney(data.totals.pending, cur), 'warn'], ['Refunded', fmtMoney(data.totals.refunded, cur)], ['Failed payments', num(data.totals.failed), data.totals.failed ? 'red' : ''], ['Transactions', num(all.length)]]} />
+        <Stats items={[['Received', fmtMoney(data.totals.paid, cur), 'ok'], ['Pending (unpaid)', fmtMoney(data.totals.pending, cur), 'warn'], ['Refunded', fmtMoney(data.totals.refunded, cur)], ['Failed payments', num(data.totals.failed), data.totals.failed ? 'red' : ''], ['Transactions', num(all.length)]]} />
         {data.otherEnrollments > 0 && <p className="note" style={{ margin: 0 }}>{num(data.otherEnrollments)} more enrollments carry an amount from imported or sample learner data. They have no payment record, but they count in Reports revenue.</p>}
         <section className="toolbar" aria-label="Filters">
           <SearchBox id="py-q" value={q} onChange={(v) => { setQ(v); t.setPage(1); }} placeholder="Search learner, course or payment ID…" />
@@ -60,7 +60,7 @@ export default function Payments() {
           </>} />
       </>)}
       <Confirm open={!!change} title={change?.status === 'paid' ? 'Mark this payment as paid?' : 'Mark this payment as refunded?'}
-        message={change && (change.status === 'paid' ? `Confirms ${fmtMoney(change.p.amount, change.p.currency || cur)} from ${change.p.student} was received${change.p.method === 'cod' ? ' (cash on delivery)' : ''}.` : `Records that ${fmtMoney(change.p.amount, change.p.currency || cur)} was returned to ${change.p.student}. This only updates Hazdemy; refund the money in Razorpay or by hand.`)}
+        message={change && (change.status === 'paid' ? `Confirms ${fmtMoney(change.p.amount, change.p.currency || cur)} from ${change.p.student} was received.` : `Records that ${fmtMoney(change.p.amount, change.p.currency || cur)} was returned to ${change.p.student}. This only updates Hazdemy; refund the money in the Stripe Dashboard or by hand.`)}
         confirmLabel={change?.status === 'paid' ? 'Mark paid' : 'Mark refunded'} onClose={() => setChange(null)} onConfirm={apply} />
     </>
   );

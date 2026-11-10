@@ -6,15 +6,16 @@ export function securityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self "https://checkout.razorpay.com")');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self)');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
   if (!req.path.startsWith('/api/')) {
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'", "base-uri 'self'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'",
-      "script-src 'self' https://checkout.razorpay.com", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      // payment happens on Stripe's own hosted page (a normal navigation), so no Stripe scripts or frames are needed here
+      "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com", "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com", "frame-src https://api.razorpay.com https://checkout.razorpay.com"
+      "connect-src 'self'", "frame-src 'none'"
     ].join('; '));
   }
   next();

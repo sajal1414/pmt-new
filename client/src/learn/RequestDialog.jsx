@@ -7,14 +7,14 @@ import { ZONES, localZone, zoneAbbr, zoneName } from '../lib/timezones.js';
 import { useLearn } from './lib.jsx';
 
 const MODES = ['Virtual', 'In person', 'Hybrid'], TIMES = ['Any time', 'Morning', 'Afternoon', 'Evening'];
-const TITLE = { batch: 'Request a new batch', change: 'Request a batch change', custom: 'Request a custom version' };
-export const KIND_LABEL = { batch: 'New batch', change: 'Batch change', custom: 'Custom version' };
+const TITLE = { batch: 'Request a new batch', change: 'Request a batch change', custom: 'Request a custom version', details: 'Ask for details' };
+export const KIND_LABEL = { batch: 'New batch', change: 'Batch change', custom: 'Custom version', details: 'Price & details' };
 const TONE = { New: 'warn', Approved: 'ok', Declined: 'gone' };
 const nice = (s) => (s ? new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 /**
  * Ask about `course`: a new batch (`kind` "batch"), a different date or time than my batch ("change"; `current` is that batch)
- * or a custom version for a company ("custom").
+ * a custom version for a company ("custom"), or the price and details of a course that has no price yet ("details").
  */
 export function RequestDialog({ kind, course, current, onClose, onDone }) {
   const { q } = useLearn();
@@ -31,27 +31,29 @@ export function RequestDialog({ kind, course, current, onClose, onDone }) {
     setBusy(true); setErr({});
     try {
       await api.post(q('/api/learn/requests'), { ...f, kind, courseId: course.id });
-      toast(kind === 'custom' ? 'Custom version request sent. We’ll get in touch.' : 'Request sent. We’ll let you know here and in your notifications.');
+      toast(kind === 'custom' ? 'Custom version request sent. We’ll get in touch.' : kind === 'details' ? 'Question sent. We’ll send you the price and details.' : 'Request sent. We’ll let you know here and in your notifications.');
       onDone?.(); onClose();
     } catch (x) { setErr(x.fields || {}); if (!x.fields) toast(x.message); } finally { setBusy(false); }
   };
-  const batch = kind !== 'custom', change = kind === 'change';
+  const batch = kind === 'batch' || kind === 'change', change = kind === 'change', details = kind === 'details';
   return (
     <Dialog open onClose={onClose} title={TITLE[kind]} subtitle={course.name}
-      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={send} disabled={busy}><Icon name="send" small />{busy ? 'Sending…' : 'Send request'}</button></>}>
-      <p className="note" style={{ margin: 0 }}>{change
+      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={send} disabled={busy}><Icon name="send" small />{busy ? 'Sending…' : details ? 'Send question' : 'Send request'}</button></>}>
+      <p className="note" style={{ margin: 0 }}>{details
+        ? 'This course doesn’t have a published price yet. Tell us a little about what you need and we’ll send you the price and details.'
+        : change
         ? <>You’re on the batch of <b>{nice(current?.startDate)}{current?.endDate && current.endDate !== current.startDate ? ` – ${nice(current.endDate)}` : ''}</b>. Tell us the date and time that would suit you better and we’ll move you to another batch.</>
         : batch ? 'Can’t find a date that suits you? Tell us when you’d like to start and we’ll try to schedule a batch.'
         : 'A version of this course for your company or team: tell us what you’d like changed, such as topics, length or examples from your own systems.'}</p>
       <div className="form">
-        {!batch && <Field id="rq-co" className="full" label="Company or team" required value={f.company} onChange={set('company')} error={err.company} placeholder="e.g. Acme Bank, Data team" />}
+        {kind === 'custom' && <Field id="rq-co" className="full" label="Company or team" required value={f.company} onChange={set('company')} error={err.company} placeholder="e.g. Acme Bank, Data team" />}
         <Field id="rq-start" label={batch ? 'Preferred start date' : 'Preferred start (optional)'} type="date" required={batch} value={f.preferredStart} onChange={set('preferredStart')} error={err.preferredStart} />
         {change ? <Field id="rq-tod" label="Preferred time of day" type="select" hideEmpty value={f.timeOfDay} onChange={set('timeOfDay')} options={TIMES} />
           : <Field id="rq-people" label="Number of people" type="number" step="1" value={f.people} onChange={set('people')} />}
         <Field id="rq-zone" label="Your time zone" type="select" hideEmpty value={f.timeZone} onChange={set('timeZone')} options={zones.map(([z, n]) => ({ value: z, label: `${n} (${zoneAbbr(z)})` }))} />
         <Field id="rq-mode" label="Delivery" type="select" hideEmpty value={f.mode} onChange={set('mode')} options={MODES} />
-        <Field id="rq-msg" className="full" label={batch ? 'Anything else (optional)' : 'What should be different?'} type="textarea" value={f.message} onChange={set('message')}
-          placeholder={change ? 'e.g. I’m travelling that week; any batch in December works' : batch ? 'e.g. mornings only, or a week in January' : 'e.g. focus on DataStage on Cloud Pak, 2 days instead of 3'} />
+        <Field id="rq-msg" className="full" label={details ? 'Your question (optional)' : batch ? 'Anything else (optional)' : 'What should be different?'} type="textarea" value={f.message} onChange={set('message')}
+          placeholder={details ? 'e.g. price for 5 people, and is there a group discount?' : change ? 'e.g. I’m travelling that week; any batch in December works' : batch ? 'e.g. mornings only, or a week in January' : 'e.g. focus on DataStage on Cloud Pak, 2 days instead of 3'} />
       </div>
     </Dialog>
   );

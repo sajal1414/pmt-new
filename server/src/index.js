@@ -16,7 +16,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { generateSample, clearSample, ensureLearning, teachingCourses, isoDay } from './learning.js';
 import { mountTeach, signatureProblem } from './teach.js';
-import { mountLearn, ensureStudent } from './learn.js';
+import { mountLearn, ensureStudent, handleStripeWebhook } from './learn.js';
 import { mountAdmin } from './admin.js';
 import { sampleMode } from './seed.js';
 import { mountPublicApi, mountApiAdmin } from './public-api.js';
@@ -40,6 +40,8 @@ app.disable('x-powered-by');
 app.use(securityHeaders);
 const PORT = Number(process.env.PORT) || 4000;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+// Stripe calls this itself (no sign-in, no browser origin); it is trusted only through its signature, checked on the raw body
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }), handleStripeWebhook);
 app.use(express.json({ limit: '5mb' }));
 app.use('/api', originGuard);
 
@@ -396,7 +398,8 @@ app.post('/api/schedule/email', wrap(async (req) => {
 }));
 // a learner's request was answered: tell them by email too
 const tellRequester = (req, r) => mailOn() && sendLater({ to: r.email, site: siteName(),
-  subject: `Your ${r.kind === 'batch' ? 'batch' : r.kind === 'change' ? 'batch change' : 'custom version'} request: ${r.status.toLowerCase()}`,
+  subject: r.kind === 'details' ? `About ${r.course}: ${r.status === 'Approved' ? 'price and details' : r.status.toLowerCase()}`
+    : `Your ${r.kind === 'batch' ? 'batch' : r.kind === 'change' ? 'batch change' : 'custom version'} request: ${r.status.toLowerCase()}`,
   text: [`Hello ${r.name || ''},`.trim(), '', `Your request about ${r.course} was ${r.status.toLowerCase()}.`, r.reply ? `\n${r.reply}` : '', '', `See it here: ${siteUrl(req)}/learn/courses/${r.courseId}`].join('\n') });
 
 // learners' requests for a batch or a custom version (admins)
@@ -431,7 +434,7 @@ app.put('/api/requests/:id', wrap((req) => {
   if (!REQ_STATUSES.includes(req.body.status)) throw new HttpError(400, 'Choose Approved, Declined or New.');
   Object.assign(r, { status: req.body.status, reply: String(req.body.reply ?? r.reply ?? '').trim().slice(0, 1000), resultId: String(req.body.resultId ?? r.resultId ?? ''),
     handledBy: req.user.name || req.user.email, handledAt: new Date().toISOString() });
-  log(`Request from ${r.name} (${r.kind === 'batch' ? 'new batch' : r.kind === 'change' ? 'batch change' : 'custom version'}, ${r.course}) ${r.status.toLowerCase()}`); save();
+  log(`Request from ${r.name} (${r.kind === 'batch' ? 'new batch' : r.kind === 'change' ? 'batch change' : r.kind === 'details' ? 'price and details' : 'custom version'}, ${r.course}) ${r.status.toLowerCase()}`); save();
   if (r.status !== 'New') tellRequester(req, r);
   return r;
 }));

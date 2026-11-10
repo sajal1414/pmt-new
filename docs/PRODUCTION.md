@@ -24,9 +24,9 @@ Set these on the host (its "Environment" or "Variables" page). Never put them in
 | `ATLAS_ADMIN_PASSWORD` | A temporary password for the first sign-in. You're asked to choose a new one straight away |
 | `ATLAS_TRUST_PROXY` | `1` on hosts that put a proxy in front of the app (Render, Railway, Fly.io, nginx) |
 | `PORT` | Usually set by the host. Defaults to `4000` |
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Your **live** Razorpay keys, when taking payments |
-| `PAYMENT_CURRENCY` | For example `INR` or `USD` |
-| `PAYMENT_COD` | `false` on the live site |
+| `STRIPE_SECRET_KEY` | Your **live** Stripe secret key (`sk_live_…`), when taking payments |
+| `STRIPE_WEBHOOK_SECRET` | The signing secret (`whsec_…`) of a Stripe webhook pointing at `https://<your site>/api/stripe/webhook` with the `checkout.session.*` events (see `server/.env.example`) |
+| `PAYMENT_CURRENCY` | For example `USD` or `INR` |
 
 The server refuses to start in production without `ATLAS_SECRET`, and (on the first start) without `ATLAS_ADMIN_PASSWORD`,
 so a live site never runs on a default secret or password.

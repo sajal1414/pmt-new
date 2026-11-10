@@ -18,7 +18,7 @@ export default function Explore() {
   const list = useMemo(() => {
     const s = text.trim().toLowerCase();
     const out = (data?.courses || []).filter((c) => (!s || `${c.name} ${c.code} ${c.platform} ${c.product} ${c.instructor.name} ${c.customFor} ${c.description}`.toLowerCase().includes(s))
-      && (!category || c.platform === category) && (!level || c.level === level) && (!price || (price === 'free' ? !c.price : c.price > 0)) && (!when || !!c.nextBatch)
+      && (!category || c.platform === category) && (!level || c.level === level) && (!price || (price === 'free' ? !(c.price > 0) : c.price > 0)) && (!when || !!c.nextBatch)
       && (!kind || (kind === 'standard' ? !c.customFor : kind === 'custom' ? !!c.customFor : c.customFor === kind.slice(7))));
     const by = { popular: (a, b) => b.learners - a.learners, rating: (a, b) => (b.rating ?? 0) - (a.rating ?? 0), 'price-asc': (a, b) => a.price - b.price, 'price-desc': (a, b) => b.price - a.price, name: (a, b) => a.name.localeCompare(b.name),
       soonest: (a, b) => (a.nextBatch?.startUtc || '9999').localeCompare(b.nextBatch?.startUtc || '9999') || b.learners - a.learners }[sort];
@@ -49,7 +49,7 @@ export default function Explore() {
       <section className="toolbar">
         <label className="field grow"><Icon name="search" small /><span className="sr">Search</span><input type="search" placeholder="Search courses, instructors, topics…" value={text} onChange={(e) => set('q', e.target.value)} /></label>
         <select className="sel" value={level} onChange={(e) => set('level', e.target.value)} aria-label="Level"><option value="">All levels</option>{['Beginner', 'Intermediate', 'Advanced'].map((l) => <option key={l}>{l}</option>)}</select>
-        <select className="sel" value={price} onChange={(e) => set('price', e.target.value)} aria-label="Price"><option value="">Any price</option><option value="free">Free</option><option value="paid">Paid</option></select>
+        <select className="sel" value={price} onChange={(e) => set('price', e.target.value)} aria-label="Price"><option value="">Any price</option><option value="paid">Has a price</option><option value="free">Price on request</option></select>
         <select className="sel" value={when} onChange={(e) => set('when', e.target.value)} aria-label="Schedule"><option value="">Any schedule</option><option value="scheduled">Upcoming batch</option></select>
         {clients.length > 0 && <select className="sel" value={kind} onChange={(e) => set('kind', e.target.value)} aria-label="Course type"><option value="">All courses</option><option value="standard">Standard courses</option><option value="custom">Custom versions</option>
           <optgroup label="Custom for">{clients.map((n) => <option key={n} value={'client:' + n}>{n}</option>)}</optgroup></select>}

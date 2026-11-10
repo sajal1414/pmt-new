@@ -53,11 +53,12 @@ export function useLearnData(path, extra = {}) {
   return { ...state, reload: load, setData: (fn) => setState((s) => ({ ...s, data: typeof fn === 'function' ? fn(s.data) : fn })) };
 }
 
-/** Price in the payment currency (from server/.env); 0 shows as Free. */
+/** Price in the payment currency (from server/.env). No courses are free: a course without a price is "Price on request". */
+export const hasPrice = (c) => +c?.price > 0;
 export function usePrice() {
   const { summary } = useLearn();
   const currency = summary?.payments?.currency || 'USD';
-  return useCallback((n) => (!+n ? 'Free' : new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(+n)), [currency]);
+  return useCallback((n) => (!(+n > 0) ? 'Price on request' : new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(+n)), [currency]);
 }
 export const firstName = (n) => String(n || '').replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '').split(' ')[0];
 export const hoursLabel = (h) => (!h ? '—' : h < 1 ? `${Math.round(h * 60)} min` : `${Math.round(h * 10) / 10} hours`);
@@ -109,79 +110,45 @@ export function CourseCard({ c, onChanged, versions = [] }) {
           <button key={v.id} type="button" className="l-vchip" title={v.name} onClick={(e) => { e.stopPropagation(); nav(q('/learn/courses/' + v.id)); }}>{v.customFor}</button>
         ))}{versions.length > 2 && <span className="note">+{versions.length - 2} more</span>}</span>}
         <div className="l-cfoot">
-          <b className="l-price">{price(c.price)}</b>
+          <b className={`l-price${hasPrice(c) ? '' : ' ask'}`}>{price(c.price)}</b>
           {c.enrolled ? <button className="btn sm" onClick={(e) => { e.stopPropagation(); nav(q('/learn/courses/' + c.id)); }}>Continue</button>
+            : !hasPrice(c) ? <button className="btn sm l-enroll" onClick={(e) => { e.stopPropagation(); nav(q('/learn/courses/' + c.id, { ask: 'details' })); }}>Ask for details</button>
             : c.nextBatch ? <button className="btn sm l-enroll" onClick={(e) => { e.stopPropagation(); nav(q('/learn/courses/' + c.id, { tab: 'schedule' })); }}>Choose batch</button>
             : <button className="btn sm l-enroll" onClick={(e) => { e.stopPropagation(); setBuy(true); }}>Enroll</button>}
         </div>
       </div>
-      <Checkout course={buy ? c : null} onClose={() => setBuy(false)} onDone={() => { onChanged?.(); nav(q('/learn/courses/' + c.id)); }} />
+      <Checkout course={buy ? c : null} onClose={() => setBuy(false)} />
     </article>
   );
 }
 
-/* ---------- checkout: free, Razorpay (online) or COD (testing) ---------- */
-let rzpScript = null;
-const loadRazorpay = () => (rzpScript ||= new Promise((resolve, reject) => {
-  if (window.Razorpay) return resolve(window.Razorpay);
-  const s = document.createElement('script');
-  s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-  s.onload = () => resolve(window.Razorpay);
-  s.onerror = () => { rzpScript = null; reject(new Error('Couldn’t load the payment window. Check your internet connection.')); };
-  document.head.appendChild(s);
-}));
-
-export function Checkout({ course, batch, onClose, onDone }) {
-  const { q, summary, reloadSummary, admin } = useLearn();
-  const toast = useToast();
+/* ---------- checkout: Stripe only, and only for courses with a price ---------- */
+// Paying leaves for Stripe's hosted page; Stripe sends the learner back to the course page with ?paid=<session>,
+// where the Course page asks the server to confirm it (see Course.jsx). There is no cash on delivery or pay-later.
+export function Checkout({ course, batch, onClose }) {
+  const { q, summary, admin } = useLearn();
   const price = usePrice();
-  const cfg = summary?.payments || { cod: true, razorpay: false };
-  const [method, setMethod] = useState('');
+  const cfg = summary?.payments || { stripe: false };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (course) { setMethod(cfg.razorpay ? 'razorpay' : 'cod'); setError(''); } }, [course]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!course) return null;
-  const free = !+course.price;
-  const done = (text) => { toast(text); reloadSummary(); onClose(); onDone?.(); };
+  useEffect(() => { if (course) { setBusy(false); setError(''); } }, [course]);
+  if (!course || !hasPrice(course)) return null;
   const pay = async () => {
     setBusy(true); setError('');
     try {
-      if (free || method === 'cod') {
-        await api.post(q('/api/learn/checkout'), { courseId: course.id, batchId: batch?.id, method: free ? 'free' : 'cod' });
-        done(free ? `You’re enrolled in ${course.name}` : `Enrolled in ${course.name}. Payment due on delivery (testing).`);
-        return;
-      }
-      const order = await api.post(q('/api/learn/checkout'), { courseId: course.id, batchId: batch?.id, method: 'razorpay' });
-      const Razorpay = await loadRazorpay();
-      await new Promise((resolve, reject) => {
-        const rzp = new Razorpay({
-          key: order.keyId, amount: order.amount, currency: order.currency, order_id: order.orderId,
-          name: 'Hazdemy', description: order.course, prefill: { name: order.name, email: order.email }, theme: { color: '#8E1B1E' },
-          handler: async (r) => {
-            try { await api.post(q('/api/learn/checkout/verify'), { orderId: r.razorpay_order_id, paymentId: r.razorpay_payment_id, signature: r.razorpay_signature }); resolve(); }
-            catch (x) { reject(x); }
-          },
-          modal: { ondismiss: () => reject(new Error('Payment cancelled. You haven’t been charged.')) }
-        });
-        rzp.on('payment.failed', (r) => reject(new Error(r.error?.description || 'The payment failed. Try another method.')));
-        rzp.open();
-      });
-      done(`Payment received. You’re enrolled in ${course.name}`);
-    } catch (x) { setError(x.message); } finally { setBusy(false); }
+      const { url } = await api.post(q('/api/learn/checkout'), { courseId: course.id, batchId: batch?.id, method: 'stripe' });
+      window.location.assign(url); // stays "Taking you to payment…" while the browser leaves for Stripe
+    } catch (x) { setError(x.message); setBusy(false); }
   };
   return (
-    <Dialog open onClose={onClose} title={free ? 'Enroll in course' : 'Checkout'} subtitle={course.name}
-      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={pay} disabled={busy || (!free && !method)}>{busy ? 'Working…' : free ? 'Enroll for free' : method === 'cod' ? `Enroll · pay ${price(course.price)} later` : `Pay ${price(course.price)}`}</button></>}>
+    <Dialog open onClose={onClose} title="Checkout" subtitle={course.name}
+      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={pay} disabled={busy || !cfg.stripe}><Icon name="lock" small />{busy ? 'Taking you to payment…' : `Pay ${price(course.price)}`}</button></>}>
       <div className="l-co" onClick={(e) => e.stopPropagation()}>
         <div className="l-co-course"><CourseThumb course={course} /><div><b>{course.name}</b><span className="note">{course.instructor?.name} · {course.lessons} lessons · {hoursLabel(course.hours)}</span></div><b className="l-price big">{price(course.price)}</b></div>
         {batch && <p className="l-co-batch"><Icon name="cal" small /><span>Batch: <b>{dateRange(batch)}</b> · {clock(batch.startTime)} – {clock(batch.endTime)} {timesIn(batch, batch.timeZone).abbr} · {batch.mode}</span></p>}
-        {!free && (
-          <fieldset className="l-methods"><legend>Payment method</legend>
-            {cfg.razorpay && <label className={method === 'razorpay' ? 'on' : ''}><input type="radio" name="pm" checked={method === 'razorpay'} onChange={() => setMethod('razorpay')} /><Icon name="lock" small /><span><b>Pay online</b><span className="note">Card, UPI, net banking or wallet via Razorpay{String(cfg.keyId).startsWith('rzp_test') ? ' · test mode' : ''}</span></span></label>}
-            {cfg.cod && <label className={method === 'cod' ? 'on' : ''}><input type="radio" name="pm" checked={method === 'cod'} onChange={() => setMethod('cod')} /><Icon name="dollar" small /><span><b>Cash on delivery <span className="pill warn" style={{ height: 20 }}>Testing</span></b><span className="note">Enroll now; the payment is recorded as pending.</span></span></label>}
-            {!cfg.razorpay && <p className="note" style={{ margin: 0 }}>Online payment isn’t set up yet. An admin can add Razorpay keys in <code>server/.env</code>.</p>}
-          </fieldset>
-        )}
+        {cfg.stripe
+          ? <p className="note" style={{ margin: 0 }}><Icon name="lock" small /> You’ll pay on Stripe’s secure page by card or another method, then come straight back here, enrolled.{cfg.testMode ? ' (Test mode: no real money moves.)' : ''}</p>
+          : <p className="note" style={{ margin: 0 }}>Online payment isn’t available right now. Please try again later or contact us.</p>}
         {admin && <p className="note" style={{ margin: 0 }}>You’re an admin viewing as this learner; the enrollment is made for them.</p>}
         {error && <p className="err" role="alert">{error}</p>}
       </div>

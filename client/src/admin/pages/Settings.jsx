@@ -146,10 +146,9 @@ export default function Settings() {
             <h2><Icon name="dollar" small />Payments</h2>
             <div className="form">
               <Field id="st-cur" label="Currency" type="select" options={[{ value: '', label: `Server default (${data.env.envCurrency})` }, ...data.currencies.map((c) => ({ value: c, label: c }))]} hideEmpty value={f.currency} onChange={set('currency')} />
-              <div className="fg"><span className="am-lbl">Online payment</span><span className={`am-chip ${data.env.razorpay ? 'ok' : ''}`}><Icon name={data.env.razorpay ? 'check' : 'x'} small />Razorpay {data.env.razorpay ? 'connected' : 'not connected'}</span></div>
+              <div className="fg"><span className="am-lbl">Online payment</span><span className={`am-chip ${data.env.stripe ? 'ok' : ''}`}><Icon name={data.env.stripe ? 'check' : 'x'} small />Stripe {data.env.stripe ? `connected${data.env.testMode ? ' (test mode)' : ''}` : 'not connected'}</span></div>
             </div>
-            <Toggle id="st-cod" label="Cash on delivery (testing)" hint={data.env.envCod ? 'Lets learners enrol now and pay later; mark the payment as paid on the Payments page.' : 'Switched off in server/.env (PAYMENT_COD=false), so this setting has no effect.'} checked={f.cod} onChange={set('cod')} />
-            <p className="note" style={{ margin: 0 }}>Razorpay keys are kept in <code>server/.env</code> (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET), never in the database. Restart the server after changing them. Indian rupee (INR) works on every Razorpay account; other currencies need international payments enabled.</p>
+            <p className="note" style={{ margin: 0 }}>Stripe keys are kept in <code>server/.env</code> (STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET), never in the database. Restart the server after changing them. Learners pay on Stripe’s own secure page.{data.env.stripe && !data.env.webhook ? ' Add the webhook secret so payments are recorded even when a learner closes the tab before returning.' : ''}</p>
           </section>
           <SecurityCard f={f} set={set} err={err} />
           <section className="card">

@@ -14,8 +14,8 @@ const validZone = (tz) => { try { return !!tz && !!new Intl.DateTimeFormat('en-U
 const TABS = [['New', 'New'], ['Approved', 'Approved'], ['Declined', 'Declined'], ['all', 'All']];
 const TONE = { New: 'warn', Approved: 'ok', Declined: 'gone' };
 // the three kinds, each with its own section
-const KINDS = [['batch', 'New batch'], ['change', 'Batch change'], ['custom', 'Custom version']];
-const KIND_TONE = { batch: 'acc', change: 'warn', custom: 'cv-pill' };
+const KINDS = [['details', 'Price & details'], ['batch', 'New batch'], ['change', 'Batch change'], ['custom', 'Custom version']];
+const KIND_TONE = { details: 'ok', batch: 'acc', change: 'warn', custom: 'cv-pill' };
 const nice = (s) => (s ? new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const weekend = (s) => [0, 6].includes(new Date(s + 'T12:00:00Z').getUTCDay());
 const nextWeekday = (s) => { let d = s; while (weekend(d)) { const t = new Date(d + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + 1); d = t.toISOString().slice(0, 10); } return d; };
@@ -31,6 +31,7 @@ export default function Requests() {
   const [batchFor, setBatchFor] = useState(null); // { r, course, b }
   const [customFor, setCustomFor] = useState(null); // { r, course }
   const [decline, setDecline] = useState(null); // { r, reply }
+  const [replyTo, setReplyTo] = useState(null); // { r, reply } while answering a price question
   const [accounts, setAccounts] = useState(null);
   const [moveFor, setMoveFor] = useState(null); // { r, course, batchId }
   const load = () => api.get('/api/requests').then(setList, (e) => setError(e.message));
@@ -123,8 +124,9 @@ export default function Requests() {
               {r.status !== 'New' && <p className="note" style={{ margin: 0 }}>{r.status} by {r.handledBy} {ago(new Date(r.handledAt).getTime())}{r.reply ? `: ${r.reply}` : ''}</p>}
               <div className="rq-act">
                 {r.status === 'New' ? <>
+                  {r.kind === 'details' && <button className="btn sm primary" onClick={() => setReplyTo({ r, reply: '' })}><Icon name="send" small />Reply with price</button>}
                   {r.kind === 'change' && <button className="btn sm primary" onClick={() => startMove(r)}><Icon name="clock" small />Move to another batch</button>}
-                  {r.kind === 'custom'
+                  {r.kind === 'custom' || r.kind === 'details'
                     ? null
                     : <button className={`btn sm${r.kind === 'batch' ? ' primary' : ''}`} onClick={() => startBatch(r)}><Icon name="cal" small />{r.kind === 'change' ? 'Create a batch for them' : 'Create batch'}</button>}
                   {r.kind === 'batch'
@@ -157,6 +159,12 @@ export default function Requests() {
         footer={<><button className="btn" onClick={() => setDecline(null)}>Cancel</button><button className="btn danger" onClick={sendDecline}><Icon name="x" small />Decline</button></>}>
         {decline && <Field id="rq-reply" label="Note for the learner (optional)" type="textarea" value={decline.reply} onChange={(v) => setDecline((d) => ({ ...d, reply: v }))} placeholder="e.g. The next batch is on 14 Dec; please join that one." />}
         <p className="note" style={{ margin: 0 }}>The learner sees this on the course page.</p>
+      </Dialog>
+      <Dialog open={!!replyTo} onClose={() => setReplyTo(null)} title="Reply with price and details" subtitle={replyTo ? `${replyTo.r.name} · ${replyTo.r.course}` : ''}
+        footer={<><button className="btn" onClick={() => setReplyTo(null)}>Cancel</button><button className="btn primary" disabled={!replyTo?.reply.trim()}
+          onClick={async () => { try { await answer(replyTo.r, 'Approved', { reply: replyTo.reply }); setReplyTo(null); toast('Reply sent'); } catch (x) { toast(x.message); } }}><Icon name="send" small />Send reply</button></>}>
+        {replyTo && <Field id="rq-answer" label="Your reply" required type="textarea" value={replyTo.reply} onChange={(v) => setReplyTo((d) => ({ ...d, reply: v }))} placeholder="e.g. The price is $499 per person, with 10% off for 5 or more. Reply to this email to book." />}
+        <p className="note" style={{ margin: 0 }}>The learner sees this on the course page{replyTo ? ` and gets it by email at ${replyTo.r.email} when email is on` : ''}. To let them buy online, add a price to the course.</p>
       </Dialog>
       <InstructorAccounts who="learner" accounts={accounts} onClose={() => setAccounts(null)} />
     </>
