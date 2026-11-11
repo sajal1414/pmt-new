@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Confirm, Dialog, Feedback, Field, StatusPill } from '../components/ui.jsx';
 import OutlineDialog from '../components/OutlineDialog.jsx';
@@ -54,10 +54,13 @@ function InstructorPicker({ value, onChange }) {
   return (
     <>
       <div className="assigned">
-        {value.length ? value.map((n) => (
-          <span key={n} className={`ichip${known(n) ? '' : ' ext'}`} title={known(n)?.email || 'Not in the instructor repository'}>{n}
+        {/* each name opens that instructor's page; a name not in the repository opens "New instructor" with it filled in */}
+        {value.length ? value.map((n) => { const i = known(n); return (
+          <span key={n} className={`ichip${i ? '' : ' ext'}`}>
+            <Link className="ichip-name" to={i ? `/instructors/${i.id}` : `/instructors?new=1&name=${encodeURIComponent(n)}`}
+              title={i ? `Open ${n}’s page${i.email ? ` (${i.email})` : ''}` : `${n} isn’t in the instructor repository yet: add them`}>{n}</Link>
             <button type="button" onClick={() => toggle(n)} aria-label={'Remove ' + n}><Icon name="x" small /></button></span>
-        )) : <span className="note">No instructors assigned yet.</span>}
+        ); }) : <span className="note">No instructors assigned yet.</span>}
       </div>
       <div className="pick-head"><p className="note" style={{ margin: 0 }}>Search and link instructors by name, skill, or product.</p>
         <button type="button" className="btn sm" onClick={() => setAdding({})}><Icon name="plus" small />Add instructor</button></div>

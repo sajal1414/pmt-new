@@ -160,6 +160,8 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page })
         <SignaturePad bare endpoint={`/api/instructors/${record.id}/signature`} preview={`/api/instructors/${record.id}/certificate-preview`} value={sig}
           note={`Printed above ${record.name}’s name on their course certificates. Saved as soon as you save it here.`} onSaved={(s) => { setSig(s); reload(); }} />
       )}
+      {/* on the edit page, the same assigned courses and ratings as the details page (for reference while editing) */}
+      {page && record && <><AssignedCourses name={record.name} /><WhoRated x={record} /></>}
     </Frame>
     <InstructorAccounts accounts={accounts} onClose={() => { setAccounts(null); if (page) onClose(); }} />
     </>
@@ -208,16 +210,34 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
       <Tile icon="globe" label="Delivery languages">{x.languages || '—'}</Tile>
       <Tile icon="msg" label="Notes & faculty comments">{x.comments || '—'}</Tile>
       {custom.length > 0 && <div className="tiles">{custom.map((c) => <Tile key={c.key} label={c.label}>{x.extra?.[c.key] || '—'}</Tile>)}</div>}
-      <div className="tile"><span>Assigned in Hazdemy ({taught.length})</span>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-          {taught.length ? taught.slice(0, 8).map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
-          {taught.length > 8 && <Link to={'/courses?instructor=' + encodeURIComponent(x.name)} onClick={leave} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
-        </div></div>
-      {!missing && <div className="box" id="who-rated">
-        <h4><Icon name="star" small />Who rated {x.name.split(' ')[0]}{lr ? ` (${lr.count})` : ''}</h4>
-        <RaterList by={{ instructor: x.id }} onOpenCourse={leave} />
-      </div>}
+      <AssignedCourses name={x.name} leave={leave} />
+      {!missing && <WhoRated x={x} leave={leave} />}
     </Frame>
+  );
+}
+
+/** The courses an instructor is assigned to in Hazdemy (details page, pop-up and edit page). */
+function AssignedCourses({ name, leave }) {
+  const { courses } = useData();
+  const taught = courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === name.trim().toLowerCase()));
+  return (
+    <div className="tile"><span>Assigned in Hazdemy ({taught.length})</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+        {taught.length ? taught.slice(0, 8).map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
+        {taught.length > 8 && <Link to={'/courses?instructor=' + encodeURIComponent(name)} onClick={leave} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
+      </div></div>
+  );
+}
+
+/** Every learner review of an instructor, with who wrote it. */
+function WhoRated({ x, leave }) {
+  const { ratings } = useData();
+  const lr = ratings.instructors[x.id];
+  return (
+    <div className="box" id="who-rated">
+      <h4><Icon name="star" small />Who rated {x.name.split(' ')[0]}{lr ? ` (${lr.count})` : ''}</h4>
+      <RaterList by={{ instructor: x.id }} onOpenCourse={leave} />
+    </div>
   );
 }
 
@@ -252,7 +272,7 @@ export default function Instructors() {
   }, [instructors, ratings, q, platform, vendor, sort]);
   const active = q || platform || vendor;
   const cols = [
-    { key: 'name', label: 'Name & contact', sortable: true, render: (x) => <span className="two"><b style={{ color: 'var(--ink)' }}>{x.name}</b>{x.email ? <span>{x.email}</span> : <span className="no-email" title="No email yet: edit the instructor to add one so they can sign in"><Icon name="alert" small />No email</span>}
+    { key: 'name', label: 'Name & contact', sortable: true, render: (x) => <span className="two"><Link className="rowlink" to={`/instructors/${x.id}`} title={`Open ${x.name}’s page`}><b style={{ color: 'var(--ink)' }}>{x.name}</b></Link>{x.email ? <span>{x.email}</span> : <span className="no-email" title="No email yet: edit the instructor to add one so they can sign in"><Icon name="alert" small />No email</span>}
       {twins.get(x.id) && <span className="dup-q"><Icon name="alert" small />Same as <b>{twins.get(x.id).name}</b>?
         <button type="button" className="linkbtn" onClick={() => setMerge({ a: x, b: twins.get(x.id), keep: x.id })}>Merge</button>
         <button type="button" className="linkbtn" onClick={() => notSame(x, twins.get(x.id))}>Not the same</button></span>}</span> },
@@ -335,8 +355,6 @@ export default function Instructors() {
       )}
       <DataTable cols={cols} rows={rows} noun="instructors" sort={sort} onSort={(k) => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : 1 }))} page={page} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }}
         actions={(x) => <>
-          <button onClick={() => nav(`/instructors/${x.id}`)} aria-label={'View details for ' + x.name} title="View details"><Icon name="eye" small /></button>
-          <button onClick={() => nav(`/instructors/${x.id}/edit`)} aria-label={'Edit ' + x.name} title="Edit"><Icon name="edit" small /></button>
           <button className="del" onClick={() => setDel(x.id)} aria-label={'Delete ' + x.name} title="Delete"><Icon name="trash" small /></button>
         </>}
         empty={<EmptyState title={instructors.length ? 'No instructors match these filters' : 'No instructors yet'} text={active ? 'Try a different search, or clear the filters.' : 'Add one, or import your instructor roster.'} />} />
