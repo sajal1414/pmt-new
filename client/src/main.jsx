@@ -6,7 +6,7 @@ import Layout from './components/Layout.jsx';
 import Home from './pages/Home.jsx';
 import Courses from './pages/Courses.jsx';
 import CourseDetail from './pages/CourseDetail.jsx';
-import Instructors from './pages/Instructors.jsx';
+import Instructors, { InstructorPage } from './pages/Instructors.jsx';
 import ImportPage from './pages/ImportPage.jsx';
 import Users from './pages/Users.jsx';
 import Login from './pages/Login.jsx';
@@ -125,6 +125,8 @@ const router = createBrowserRouter([
       { path: 'requests', element: <Requests /> },
       { path: 'instructors', element: <Instructors /> },
       { path: 'instructors/import', element: <ImportPage key="instructors" kind="instructors" /> },
+      { path: 'instructors/:id', element: <InstructorPage key="view" /> },
+      { path: 'instructors/:id/edit', element: <InstructorPage key="edit" edit /> },
       { path: 'users', element: <AdminOnly><Users /></AdminOnly> },
       { path: 'enrollments', element: <AEnrollments /> },
       { path: 'content', element: <AContent /> },

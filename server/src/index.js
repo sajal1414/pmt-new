@@ -265,7 +265,38 @@ function assertOwnCourse(user, c) {
   const inst = instructorOf(user);
   if (!inst || !teaches(inst, c)) throw new HttpError(403, 'You can only change courses you teach.');
 }
-app.get('/api/courses', wrap(() => load().courses));
+/* Instructors only see the courses they teach, and on those only themselves as instructor and only their own batches:
+   who else teaches a course (its other instructors, and the batches another instructor runs) is for admins only.
+   A batch with no instructor set belongs to the course, so every instructor of the course sees it. Admins see everything. */
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+const othersBatch = (b, inst) => !!b.instructor && !sameName(b.instructor, inst.name);
+const maskCourse = (c, inst) => ({ ...c, instructors: [inst.name], schedules: (c.schedules || []).filter((b) => !othersBatch(b, inst)) });
+/** What `user` may read of course `c`: the course itself (admins), it masked (its instructor), or null. */
+function courseFor(user, c) {
+  if (!c) return null;
+  if (user.role === 'Admin') return c;
+  const inst = instructorOf(user);
+  return inst && teaches(inst, c) ? maskCourse(c, inst) : null;
+}
+const visibleCourses = (user, list = load().courses) => list.map((c) => courseFor(user, c)).filter(Boolean);
+function readableCourse(user, id) {
+  const c = courseFor(user, load().courses.find((x) => x.id === id));
+  if (!c) throw new HttpError(404, 'Course not found.'); // the same answer for "missing" and "not yours"
+  return c;
+}
+/**
+ * An instructor saving a course they saw masked: the hidden co-instructors stay, and other instructors' batches (which
+ * they never received) are kept as they are; they can't be changed or removed this way. Batches the instructor sends
+ * are theirs or the course's: they can't hand one to someone else.
+ */
+function keepHidden(stored, next, inst) {
+  next.instructors = [...(stored.instructors || [])];
+  if (!teaches(inst, next)) next.instructors.push(inst.name); // can't remove yourself from your own course
+  const hidden = (stored.schedules || []).filter((b) => othersBatch(b, inst)), hiddenIds = new Set(hidden.map((b) => b.id));
+  const own = (next.schedules || []).filter((b) => !hiddenIds.has(b.id)).map((b) => (othersBatch(b, inst) ? { ...b, instructor: inst.name } : b));
+  next.schedules = [...own, ...hidden];
+}
+app.get('/api/courses', wrap((req) => visibleCourses(req.user)));
 // course codes made when none is typed: the next number in the series the platform's courses use (HAZ-DA-0051),
 // and for a client version the original's code plus 3 letters of the client (HAZ-AT-008-MAC)
 const taken = (d, code) => d.courses.some((x) => String(x.code).trim().toLowerCase() === code.toLowerCase());
@@ -295,7 +326,7 @@ app.post('/api/schedule/bulk-delete', wrap((req) => {
   for (const c of d.courses) {
     if (inst && !teaches(inst, c)) continue;
     const before = (c.schedules || []).length;
-    c.schedules = (c.schedules || []).filter((b) => !ids.has(b.id));
+    c.schedules = (c.schedules || []).filter((b) => !ids.has(b.id) || (inst && othersBatch(b, inst))); // an instructor can't delete another's batch
     removed += before - c.schedules.length;
   }
   if (removed) { log(`${removed} batch${removed === 1 ? '' : 'es'} deleted from the schedule`); save(); }
@@ -304,7 +335,7 @@ app.post('/api/schedule/bulk-delete', wrap((req) => {
 app.get('/api/schedule', wrap((req) => {
   const d = load(), inst = instructorOf(req.user);
   if (req.user.role !== 'Admin' && !inst) throw new HttpError(403, 'Only admins and instructors can see the schedule.');
-  const list = inst ? d.courses.filter((c) => teaches(inst, c)) : d.courses;
+  const list = visibleCourses(req.user, d.courses); // an instructor's own courses, masked
   const courseOf = (c) => ({ id: c.id, code: c.code, name: c.name, customFor: c.customFor || '', duration: c.duration ?? '', instructors: c.instructors || [], maxStudents: c.maxStudents ?? '' });
   // the courses a batch can be added to, and every batch with its course
   return { courses: list.map(courseOf), batches: list.flatMap((c) => (c.schedules || []).map((b) => ({ ...b, course: courseOf(c) }))) };
@@ -386,7 +417,7 @@ app.post('/api/schedule/email', wrap(async (req) => {
   const d = load(), inst = instructorOf(req.user), c = d.courses.find((x) => x.id === String(req.body.courseId || ''));
   if (req.user.role !== 'Admin' && !(inst && c && teaches(inst, c))) throw new HttpError(403, 'You can only email learners on your own courses.');
   const b = (c?.schedules || []).find((x) => x.id === String(req.body.batchId || ''));
-  if (!b) throw new HttpError(404, 'Batch not found.');
+  if (!b || (inst && othersBatch(b, inst))) throw new HttpError(404, 'Batch not found.'); // not another instructor's batch
   if (!(b.learners || []).length) throw new HttpError(422, 'This batch has no learners yet.');
   needMail();
   const subject = String(req.body.subject || '').trim().slice(0, 200), text = String(req.body.body || '').trim().slice(0, 10000);
@@ -439,10 +470,10 @@ app.put('/api/requests/:id', wrap((req) => {
   return r;
 }));
 app.get('/api/courses/next-code', wrap((req) => ({ code: nextCode(load(), String(req.query.platform || '').slice(0, 120)) })));
-app.get('/api/courses/:id', wrap((req) => { const c = load().courses.find((x) => x.id === req.params.id); if (!c) throw new HttpError(404, 'Course not found.'); return c; }));
+app.get('/api/courses/:id', wrap((req) => readableCourse(req.user, req.params.id)));
 app.get('/api/courses/:id/pdf', (req, res, next) => {
-  const c = load().courses.find((x) => x.id === req.params.id);
-  if (!c) return next(new HttpError(404, 'Course not found.'));
+  let c;
+  try { c = readableCourse(req.user, req.params.id); } catch (e) { return next(e); }
   const name = `${c.code} - ${c.name}`.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) + '.pdf';
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`);
@@ -454,7 +485,7 @@ app.get('/api/courses/:id/pdf', (req, res, next) => {
 app.post('/api/courses/catalog-pdf', (req, res, next) => {
   try {
     const d = load(), ids = Array.isArray(req.body.ids) ? new Set(req.body.ids.map(String)) : null;
-    const list = ids ? d.courses.filter((c) => ids.has(c.id)) : d.courses;
+    const list = visibleCourses(req.user, ids ? d.courses.filter((c) => ids.has(c.id)) : d.courses);
     if (!list.length) throw new HttpError(422, 'There are no courses to put in the catalog.');
     const title = String(req.body.title || '').trim().slice(0, 80) || 'Course Catalog';
     const fields = Array.isArray(req.body.fields) ? req.body.fields.filter((k) => CATALOG_FIELDS.includes(k)) : CATALOG_DEFAULTS;
@@ -476,7 +507,7 @@ const pdfBuffer = (c, opts) => new Promise((resolve, reject) => {
 });
 app.post('/api/courses/pdf-zip', wrap(async (req, res) => {
   const d = load(), ids = Array.isArray(req.body.ids) ? req.body.ids.map(String) : [];
-  const list = d.courses.filter((c) => ids.includes(c.id));
+  const list = visibleCourses(req.user, d.courses.filter((c) => ids.includes(c.id)));
   if (!list.length) throw new HttpError(422, 'Select at least one course.');
   if (list.length > 300) throw new HttpError(422, 'Select up to 300 courses at a time.');
   const zip = new JSZip(), used = new Set(), opts = { fields: req.body.fields == null ? undefined : pdfFields(req.body.fields) };
@@ -496,7 +527,7 @@ app.post('/api/courses', wrap((req, res) => {
   if (!String(c.code || '').trim()) c.code = nextCode(load(), c.platform); // no code typed: the next one in the series
   const inst = instructorOf(req.user);
   if (req.user.role !== 'Admin' && !inst) throw new HttpError(403, 'Your account isn’t linked to an instructor profile yet.');
-  if (inst) { if (!teaches(inst, c)) c.instructors = [...(c.instructors || []), inst.name]; if (!req.body.status) c.status = 'Draft'; }
+  if (inst) { c.instructors = [inst.name]; if (!req.body.status) c.status = 'Draft'; } // an instructor's new course is theirs alone; admins add others
   validateCourse(c);
   c.id = uid('c'); c.updated = new Date().toISOString();
   // a Word outline read into the new-course form: keep its file with the course
@@ -504,7 +535,7 @@ app.post('/api/courses', wrap((req, res) => {
   if (doc) { attachOutline(c, doc); pendingDocs.delete(String(req.body.outlineToken)); }
   load().courses.unshift(c); log(`Course ${c.name} created`); syncInstructors(load());
   const accounts = batchAccounts(load(), c); save();
-  res.status(201); return { ...c, accounts };
+  res.status(201); return { ...courseFor(req.user, c), accounts };
 }));
 // a client's own version of a course: a copy of its content, tagged with the client and linked back to the original
 app.post('/api/courses/:id/customize', wrap((req, res) => {
@@ -521,7 +552,7 @@ app.post('/api/courses/:id/customize', wrap((req, res) => {
   validateCourse(c);
   c.id = uid('c'); c.updated = new Date().toISOString();
   d.courses.unshift(c); log(`Custom version ${c.name} created for ${customFor}`); syncInstructors(d); save();
-  res.status(201); return c;
+  res.status(201); return courseFor(req.user, c);
 }));
 app.put('/api/courses/:id', wrap((req) => {
   const d = load(), i = d.courses.findIndex((x) => x.id === req.params.id);
@@ -529,11 +560,11 @@ app.put('/api/courses/:id', wrap((req) => {
   assertOwnCourse(req.user, d.courses[i]);
   const next = { ...d.courses[i], ...cleanCourse(req.body), id: d.courses[i].id, updated: new Date().toISOString() };
   const inst = instructorOf(req.user);
-  if (inst && !teaches(inst, next)) next.instructors = [...(next.instructors || []), inst.name]; // can't remove yourself from your own course
+  if (inst) keepHidden(d.courses[i], next, inst); // they saw only themselves: co-instructors and others' batch instructors stay as they were
   validateCourse(next, next.id);
   d.courses[i] = next; log(`Course ${next.name} updated`); syncInstructors(d);
   const accounts = batchAccounts(d, next); save();
-  return { ...next, accounts };
+  return { ...courseFor(req.user, next), accounts };
 }));
 app.delete('/api/courses/:id', wrap((req, res) => {
   const d = load(), i = d.courses.findIndex((x) => x.id === req.params.id);
@@ -575,22 +606,29 @@ function validateInstructor(x, id) {
   if (Object.keys(f).length) throw new HttpError(422, 'Fix the highlighted fields.', f);
 }
 // signatures are only needed for certificates, so the list says whether one exists instead of sending the image
-app.get('/api/instructors', wrap(() => load().instructors.map(({ signature, ...i }) => ({ ...i, hasSignature: !!signature }))));
+// admins: every instructor; an instructor: only their own profile (not other instructors' contact details)
+app.get('/api/instructors', wrap((req) => load().instructors.filter((i) => req.user.role === 'Admin' || i.id === req.user.instructorId)
+  .map(({ signature, ...i }) => ({ ...i, hasSignature: !!signature }))));
 // learner star ratings, worked out live from reviews so a new review shows on every page straight away
-app.get('/api/ratings', wrap(() => {
+app.get('/api/ratings', wrap((req) => {
   const d = load(); ensureLearning(d);
+  // an instructor gets the ratings of their own courses and their own rating only
+  const mine = req.user.role === 'Admin' ? null : instructorOf(req.user);
+  if (req.user.role !== 'Admin' && !mine) return { courses: {}, instructors: {} };
+  const seeCourse = mine ? new Set(teachingCourses(d, mine).map((c) => c.id)) : null;
   const avg = (list) => (list.length ? Math.round((list.reduce((a, v) => a + v.rating, 0) / list.length) * 10) / 10 : null);
   const names = new Map(d.students.map((s) => [s.id, s.name]));
   const byCourse = new Map();
   for (const v of d.reviews) { if (!byCourse.has(v.courseId)) byCourse.set(v.courseId, []); byCourse.get(v.courseId).push(v); }
   const courses = {};
   for (const [id, list] of byCourse) {
+    if (seeCourse && !seeCourse.has(id)) continue;
     courses[id] = { avg: avg(list), count: list.length, stars: [5, 4, 3, 2, 1].map((s) => list.filter((v) => v.rating === s).length),
       latest: [...list].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8)
         .map((v) => ({ id: v.id, rating: v.rating, comment: v.comment, instructorRating: v.instructorRating || null, instructorComment: v.instructorComment || '', date: v.date, reply: v.reply || '', student: names.get(v.studentId) || 'Learner' })) };
   }
   const instructors = {};
-  for (const x of d.instructors) {
+  for (const x of mine ? [mine] : d.instructors) {
     // learners rate the instructor separately; older reviews without that answer count their course rating
     const list = teachingCourses(d, x).flatMap((c) => byCourse.get(c.id) || []).map((v) => ({ rating: v.instructorId === x.id && v.instructorRating ? v.instructorRating : v.rating }));
     if (list.length) instructors[x.id] = { avg: avg(list), count: list.length };
@@ -604,6 +642,11 @@ app.get('/api/ratings/reviews', wrap((req) => {
   const inst = req.query.instructor && d.instructors.find((x) => x.id === req.query.instructor);
   if (req.query.instructor && !inst) throw new HttpError(404, 'Instructor not found.');
   const ids = inst ? new Set(teachingCourses(d, inst).map((c) => c.id)) : new Set([String(req.query.course || '')]);
+  // an instructor may read the reviews of their own courses, or of themselves, and nobody else's
+  if (req.user.role !== 'Admin') {
+    const me = instructorOf(req.user), own = me ? new Set(teachingCourses(d, me).map((c) => c.id)) : new Set();
+    if ((inst && inst.id !== me?.id) || [...ids].some((id) => !own.has(id))) throw new HttpError(404, inst ? 'Instructor not found.' : 'Course not found.');
+  }
   return d.reviews.filter((v) => ids.has(v.courseId)).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
     .map((v) => ({ id: v.id, student: names.get(v.studentId)?.name || 'Learner', email: names.get(v.studentId)?.email || '', sample: !!v.sample,
       courseId: v.courseId, code: byId.get(v.courseId)?.code || '', course: byId.get(v.courseId)?.name || '',
@@ -857,8 +900,9 @@ app.delete('/api/users/:id', wrap((req, res) => {
 }));
 
 /* ---------- Activity / maintenance ---------- */
-app.get('/api/activity', wrap(() => load().activity));
-app.post('/api/activity/read', wrap(() => { load().activity.forEach((a) => (a.read = true)); save(); return { ok: true }; }));
+// the site-wide activity log names every course and person, so it is for admins (instructors have their own notifications)
+app.get('/api/activity', wrap((req) => (req.user.role === 'Admin' ? load().activity : [])));
+app.post('/api/activity/read', wrap((req) => { if (req.user.role !== 'Admin') return { ok: true }; load().activity.forEach((a) => (a.read = true)); save(); return { ok: true }; }));
 // the old one-click reset is gone: resetting now happens on Site Settings (typed confirmation, backup first)
 app.post('/api/reset', wrap(() => { throw new HttpError(410, 'Reset moved to Site Settings, where a backup is kept first.'); }));
 
@@ -992,7 +1036,7 @@ const safeName = (n) => path.basename(n).replace(/[^\w.\-() ]+/g, '_').slice(-12
 app.post('/api/outlines/parse', docUpload.array('files', 50), wrap(async (req) => {
   if (!req.files?.length) throw new HttpError(400, 'Choose one or more Word documents.');
   for (const [t, p] of pendingDocs) if (Date.now() - p.at > 30 * 6e4) pendingDocs.delete(t);
-  const courses = load().courses;
+  const courses = visibleCourses(req.user); // an instructor's outline can only be matched to their own courses
   const items = [];
   for (const f of req.files) {
     const filename = Buffer.from(f.originalname, 'latin1').toString('utf8'); // multer reads names as latin1
@@ -1071,6 +1115,9 @@ app.post('/api/outlines/apply', wrap((req) => {
 }));
 
 app.get('/api/outlines/file/:id/:name', (req, res) => {
+  // a course's outline file: admins, or an instructor of that course (folders are named by course id)
+  const course = load().courses.find((c) => c.id === req.params.id);
+  if (req.user.role !== 'Admin' && !(course && courseFor(req.user, course))) return res.status(404).json({ error: 'Outline file not found.' });
   const file = path.join(OUTLINE_DIR, path.basename(req.params.id), safeName(req.params.name));
   if (!fs.existsSync(file)) return res.status(404).json({ error: 'Outline file not found.' });
   res.download(file, path.basename(file));

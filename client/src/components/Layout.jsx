@@ -70,8 +70,10 @@ export default function Layout() {
     if (loc.pathname === '/courses/import' || loc.pathname === '/instructors/import') return 'Bulk import';
     if (loc.pathname === '/courses/new') return 'New course';
     if (m) return courses.find((c) => c.id === m[1])?.name || 'Course';
+    const im = loc.pathname.match(/^\/instructors\/([^/]+)(\/edit)?$/); // an instructor's page, or its edit page
+    if (im) { const name = instructors.find((i) => i.id === im[1])?.name || 'Instructor'; return im[2] ? `Edit ${name}` : name; }
     return PAGES.find(([to]) => to === loc.pathname)?.[2] || 'Not found';
-  }, [loc.pathname, courses]);
+  }, [loc.pathname, courses, instructors]);
   const crumb = loc.pathname.startsWith('/courses/') ? 'Courses' : loc.pathname.startsWith('/instructors/') ? 'Instructors' : '';
   const toggleSide = () => { if (window.innerWidth <= 860) setOpen((o) => !o); else setCollapsed((c) => !c); };
   // new learner requests, for the badge (checked again when the page changes or a request is answered)
@@ -117,7 +119,7 @@ export default function Layout() {
                 <div className="gres">
                   {results.pages.length > 0 && <><h4>Pages</h4>{results.pages.map(([to, , l]) => <button key={to} onClick={() => go(to)}>{l}<span>Go to page</span></button>)}</>}
                   {results.courses.length > 0 && <><h4>Courses</h4>{results.courses.map((c) => <button key={c.id} onClick={() => go('/courses/' + c.id)}>{c.name}<span>{c.code} · {c.status}</span></button>)}</>}
-                  {results.instructors.length > 0 && <><h4>Instructors</h4>{results.instructors.map((i) => <button key={i.id} onClick={() => go('/instructors?view=' + i.id)}>{i.name}<span>{[i.product, i.location].filter(Boolean).join(' · ')}</span></button>)}</>}
+                  {results.instructors.length > 0 && <><h4>Instructors</h4>{results.instructors.map((i) => <button key={i.id} onClick={() => go('/instructors/' + i.id)}>{i.name}<span>{[i.product, i.location].filter(Boolean).join(' · ')}</span></button>)}</>}
                   {results.users.length > 0 && <><h4>Users</h4>{results.users.map((u) => <button key={u.id} onClick={() => go('/users?q=' + encodeURIComponent(u.email))}>{u.name || u.email}<span>{u.email} · {u.role}</span></button>)}</>}
                   {!found ? <p>No matches for “{q}”.</p> : <button onClick={searchAll} style={{ color: 'var(--accent-ink)', fontWeight: 600 }}>See all course results →</button>}
                 </div>

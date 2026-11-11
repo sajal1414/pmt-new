@@ -57,7 +57,7 @@ export default function Reports() {
           <div className="card"><h2 style={{ margin: 0, fontSize: 16 }}>New learners per month</h2><BarChart data={data.months.map((m) => ({ label: month(m.month), full: m.month, value: m.learners }))} label="New learners" /></div>
         </section>
         <Table title="By platform" file="atlas-report-platforms.csv" cur={cur} rows={data.platforms} cols={[['platform', 'Platform'], ['courses', 'Courses', 'n'], ...NUMS.map(([k, l, kind]) => [k, l, kind])]} />
-        <Table title="By instructor" file="atlas-report-instructors.csv" cur={cur} rows={data.instructors} cols={[['name', 'Instructor', '', (r) => <Link className="rowlink" to={'/instructors?view=' + r.id}>{r.name}</Link>], ['courses', 'Courses', 'n'], ['learners', 'Learners', 'n'], ...NUMS.map(([k, l, kind]) => [k, l, kind])]} />
+        <Table title="By instructor" file="atlas-report-instructors.csv" cur={cur} rows={data.instructors} cols={[['name', 'Instructor', '', (r) => <Link className="rowlink" to={'/instructors/' + r.id}>{r.name}</Link>], ['courses', 'Courses', 'n'], ['learners', 'Learners', 'n'], ...NUMS.map(([k, l, kind]) => [k, l, kind])]} />
         <Table title="By course" file="atlas-report-courses.csv" cur={cur} rows={data.courses} cols={[['name', 'Course', '', (r) => <span className="two"><Link className="rowlink" to={'/courses/' + r.id}>{r.name}</Link><span>{r.code}</span></span>], ...NUMS.map(([k, l, kind]) => [k, l, kind])]} />
       </>)}
     </>

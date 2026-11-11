@@ -166,7 +166,7 @@ export default function ImportPage({ kind }) {
             {!isKind(tab) && <span className={`pill ${tone}`}>{label}</span>}
             <span>{r.why}</span>
             {(r.kind === 'duplicate' || r.kind === 'exists') && <button type="button" className="btn sm" onClick={() => setCompare(r)}><Icon name="layers" small />Compare</button>}
-            {r.existingId && <Link to={isC ? `/courses/${r.existingId}` : `/instructors?view=${r.existingId}`} target="_blank" rel="noopener">Open in Hazdemy<Icon name="ext" small /></Link>}
+            {r.existingId && <Link to={isC ? `/courses/${r.existingId}` : `/instructors/${r.existingId}`} target="_blank" rel="noopener">Open in Hazdemy<Icon name="ext" small /></Link>}
             {r.field && <FixBox key={r.row + r.field + r.why} r={r} label={labelOf(r.field)} initial={r.kind === 'exists' ? '' : fixes[r.row]?.[r.field] || (r.kind === 'invalid' ? text(r[r.field]) : '')} busy={busy} onFix={(v) => fixRow(r, v)} />}
           </span>
         );
@@ -382,7 +382,7 @@ export default function ImportPage({ kind }) {
             subtitle={dup ? `Both rows have the same ${isC ? 'course code' : 'email'}, so only one can be imported.` : `This ${isC ? 'course' : 'instructor'} is already in Hazdemy. Importing doesn’t change what’s saved there.`}
             footer={<>
               <button className="btn" onClick={() => setCompare(null)}>Close</button>
-              {!dup && compare.existingId && <Link className="btn" to={isC ? `/courses/${compare.existingId}` : `/instructors?view=${compare.existingId}`} target="_blank" rel="noopener"><Icon name="ext" small />Open in Hazdemy</Link>}
+              {!dup && compare.existingId && <Link className="btn" to={isC ? `/courses/${compare.existingId}` : `/instructors/${compare.existingId}`} target="_blank" rel="noopener"><Icon name="ext" small />Open in Hazdemy</Link>}
               {dup && <button className="btn primary" disabled={busy} onClick={() => useInstead(compare)}><Icon name="check" small />Import row {compare.row} instead</button>}
             </>}>
             <p className="note" style={{ margin: 0 }}>{diff.length ? `${diff.length} field${diff.length === 1 ? '' : 's'} differ${diff.length === 1 ? 's' : ''} (highlighted).` : 'Every field is the same: the rows are exact copies.'}{dup && ` Row ${compare.dupOf} is the one imported now.`}</p>

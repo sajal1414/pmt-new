@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Confirm, DataTable, Dialog, Field, Feedback, PageHead, EmptyState, Dash, sortRows, downloadText, toCSV } from '../components/ui.jsx';
 import RaterList from '../components/RaterList.jsx';
@@ -17,6 +17,22 @@ const FIELDS = [
   ['skills', 'Skills / products', 'text', 'full', false, 'watsonx Orchestrate, DataStage, …'], 
   ['languages', 'Delivery languages', 'text', '', false, 'e.g. English, German'], ['rating', 'Client feedback (0–5)', 'number'], ['comments', 'Comments', 'textarea', 'full']
 ];
+
+/**
+ * The instructor details and form show as a pop-up (Courses page, course editor) or as a page of their own
+ * (/instructors/:id and /instructors/:id/edit): same content, only the frame differs.
+ */
+function Frame({ page, back, open = true, title, subtitle, onClose, footer, wide, children }) {
+  if (!page) return <Dialog open={open} wide={wide} title={title} subtitle={subtitle} onClose={onClose} footer={footer}>{children}</Dialog>;
+  return (
+    <>
+      <Link to={back.to} className="back" style={{ alignSelf: 'flex-start' }}><Icon name="back" small />{back.label}</Link>
+      <PageHead eyebrow="Instructor" title={title} summary={subtitle && <span className="note">{subtitle}</span>} actions={footer} />
+      <section className="card">{children}</section>
+      {footer && <div className="actions" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 10 }}>{footer}</div>}
+    </>
+  );
+}
 
 // names that are probably the same person: the same letters ("ArturoSantos"), a typo or swapped letters
 // ("Mansih Ladha"), one name inside the other ("Dan Ani Manish Ladha"), or the same email
@@ -96,7 +112,7 @@ function CoursePicker({ value, onChange, instructorName, assign, onAssign, initi
   );
 }
 
-export function InstructorForm({ open, record, preset, onClose, onSaved }) {
+export function InstructorForm({ open, record, preset, onClose, onSaved, page }) {
   const { reload, instructors } = useData();
   const toast = useToast();
   const [f, setF] = useState({});
@@ -118,14 +134,16 @@ export function InstructorForm({ open, record, preset, onClose, onSaved }) {
     const body = { ...f, platforms: splitList(f.platformsText), assign: assign ? fresh.map((c) => c.id) : [] };
     try {
       const saved = record ? await api.put('/api/instructors/' + record.id, body) : await api.post('/api/instructors', body);
-      await reload(); toast((record ? 'Saved ' : 'Created ') + f.name); onSaved?.(saved); onClose();
-      if (saved.accounts?.length) setAccounts(saved.accounts); // a new instructor's sign-in
+      await reload(); toast((record ? 'Saved ' : 'Created ') + f.name); onSaved?.(saved);
+      // a new sign-in (temporary password) is shown first; on a page, leaving waits until it's been seen
+      if (saved.accounts?.length) { setAccounts(saved.accounts); if (!page) onClose(); } else onClose();
     } catch (x) { setErr(x.fields || {}); if (!x.fields) toast(x.message); } finally { setBusy(false); }
   };
   return (
     <>
-    <Dialog open={open} onClose={onClose} title={record ? 'Edit instructor' : 'New instructor'} subtitle={record ? record.email || 'No email yet' : 'Only the name is required. Add an email so they can sign in.'}
-      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" type="submit" form="instrForm" disabled={busy}>{record ? 'Save changes' : 'Create instructor'}</button></>}>
+    <Frame page={page} back={record && { to: `/instructors/${record.id}`, label: record.name }} open={open} onClose={onClose}
+      title={page && record ? `Edit ${record.name}` : record ? 'Edit instructor' : 'New instructor'} subtitle={record ? record.email || 'No email yet' : 'Only the name is required. Add an email so they can sign in.'}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" type="submit" form="instrForm" disabled={busy}><Icon name="save" small />{busy ? 'Saving…' : record ? 'Save changes' : 'Create instructor'}</button></>}>
       <form id="instrForm" className="form" noValidate onSubmit={submit}>
         {FIELDS.map(([k, label, type = 'text', cls = '', req = false, ph]) => (
           <Field key={k} id={'in-' + k} label={label} type={type} options={type === 'select' ? TRAVEL : undefined} className={cls} required={req} placeholder={ph} step={k === 'rating' ? '0.1' : undefined}
@@ -142,13 +160,14 @@ export function InstructorForm({ open, record, preset, onClose, onSaved }) {
         <SignaturePad bare endpoint={`/api/instructors/${record.id}/signature`} preview={`/api/instructors/${record.id}/certificate-preview`} value={sig}
           note={`Printed above ${record.name}’s name on their course certificates. Saved as soon as you save it here.`} onSaved={(s) => { setSig(s); reload(); }} />
       )}
-    </Dialog>
-    <InstructorAccounts accounts={accounts} onClose={() => setAccounts(null)} />
+    </Frame>
+    <InstructorAccounts accounts={accounts} onClose={() => { setAccounts(null); if (page) onClose(); }} />
     </>
   );
 }
 
-export function InstructorView({ x: given, onClose, onEdit, focusRated }) {
+export function InstructorView({ x: given, onClose, onEdit, focusRated, page, onDelete }) {
+  const leave = page ? undefined : onClose; // following a link closes the pop-up; on a page there is nothing to close
   const { courses, ratings } = useData();
   const custom = useCustomFields().instructors;
   // a name used on courses but missing from the instructor list: build what we can from those courses
@@ -159,12 +178,12 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated }) {
   const rated = missing ? taught.map((c) => ratings.courses[c.id]).filter(Boolean) : [];
   const lr = !x ? null : missing ? (rated.length ? { avg: rated.reduce((a, r) => a + r.avg * r.count, 0) / rated.reduce((a, r) => a + r.count, 0), count: rated.reduce((a, r) => a + r.count, 0) } : null) : ratings.instructors[x.id];
   useEffect(() => { if (given && focusRated) setTimeout(() => document.getElementById('who-rated')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); }, [given, focusRated]);
-  if (!x) return <Dialog open={false} onClose={onClose} />;
+  if (!x) return page ? null : <Dialog open={false} onClose={onClose} />;
   const skills = splitList(x.skills);
   const Tile = ({ icon, label, children }) => <div className="tile"><span>{icon && <Icon name={icon} small />} {label}</span><b>{children}</b></div>;
   return (
-    <Dialog open wide title="Instructor details" onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={onEdit}><Icon name={missing ? 'plus' : 'edit'} small />{missing ? 'Add to instructor list' : 'Edit'}</button></>}>
+    <Frame page={page} back={{ to: '/instructors', label: 'Instructors' }} wide title={page ? x.name : 'Instructor details'} subtitle={page ? [(x.platforms || []).join(', '), x.location].filter(Boolean).join(' · ') : ''} onClose={onClose}
+      footer={<>{page ? onDelete && <button className="btn danger-o" onClick={onDelete}><Icon name="trash" small />Delete</button> : <button className="btn" onClick={onClose}>Close</button>}<button className="btn primary" onClick={onEdit}><Icon name={missing ? 'plus' : 'edit'} small />{missing ? 'Add to instructor list' : 'Edit'}</button></>}>
       {missing && <div className="iv-missing"><Icon name="alert" small /><span><b>{x.name}</b> teaches {taught.length} course{taught.length === 1 ? '' : 's'} but isn’t in the instructor list yet, so email, phone and other details are missing. The details below come from their courses. Click <b>Add to instructor list</b> to save a full profile.</span></div>}
       <div className="iv-head"><span className="iv-av">{initials(x.name)}</span>
         <div><div style={{ fontWeight: 700, fontSize: 16 }}>{x.name}</div>
@@ -191,14 +210,14 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated }) {
       {custom.length > 0 && <div className="tiles">{custom.map((c) => <Tile key={c.key} label={c.label}>{x.extra?.[c.key] || '—'}</Tile>)}</div>}
       <div className="tile"><span>Assigned in Hazdemy ({taught.length})</span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-          {taught.length ? taught.slice(0, 8).map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={onClose}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
-          {taught.length > 8 && <Link to={'/courses?instructor=' + encodeURIComponent(x.name)} onClick={onClose} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
+          {taught.length ? taught.slice(0, 8).map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
+          {taught.length > 8 && <Link to={'/courses?instructor=' + encodeURIComponent(x.name)} onClick={leave} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
         </div></div>
       {!missing && <div className="box" id="who-rated">
         <h4><Icon name="star" small />Who rated {x.name.split(' ')[0]}{lr ? ` (${lr.count})` : ''}</h4>
-        <RaterList by={{ instructor: x.id }} onOpenCourse={onClose} />
+        <RaterList by={{ instructor: x.id }} onOpenCourse={leave} />
       </div>}
-    </Dialog>
+    </Frame>
   );
 }
 
@@ -220,9 +239,11 @@ export default function Instructors() {
     // ?name= comes from an instructor named on a course but missing from this list
     setForm({ record: null, preset: params.get('name') ? { name: params.get('name') } : {} }); const p = new URLSearchParams(params); p.delete('new'); p.delete('name'); setParams(p, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const viewId = params.get('view');
-  const viewing = instructors.find((i) => i.id === viewId);
-  const closeView = () => { const p = new URLSearchParams(params); p.delete('view'); p.delete('rated'); setParams(p, { replace: true }); };
+  // older links (/instructors?view=<id>, from search, imports and reports) now open the instructor's own page
+  useEffect(() => {
+    const id = params.get('view');
+    if (id) nav(`/instructors/${encodeURIComponent(id)}${params.get('rated') === '1' ? '?rated=1' : ''}`, { replace: true });
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -240,7 +261,7 @@ export default function Instructors() {
     { key: 'product', label: 'Products & can teach', sortable: true, tdStyle: { minWidth: 240 }, render: (x) => <span className="two"><b style={{ color: 'var(--ink)', fontWeight: 600 }}>{x.product || '—'}</b><span>{x.skills}</span></span> },
     { key: 'location', label: 'Location', sortable: true },
     { key: 'vendor', label: 'Vendor', sortable: true },
-    { key: 'learner', label: 'Rating', sortable: true, render: (x) => { const r = ratings.instructors[x.id]; return r ? <button type="button" className="crev-cell crev-btn" title="See who rated" onClick={() => setParams({ view: x.id, rated: '1' }, { replace: true })}><span>★</span>{r.avg.toFixed(1)} <span className="note">({r.count})</span></button> : <Dash />; } }
+    { key: 'learner', label: 'Rating', sortable: true, render: (x) => { const r = ratings.instructors[x.id]; return r ? <button type="button" className="crev-cell crev-btn" title="See who rated" onClick={() => nav(`/instructors/${x.id}?rated=1`)}><span>★</span>{r.avg.toFixed(1)} <span className="note">({r.count})</span></button> : <Dash />; } }
   ];
   // select rows to delete several at once
   const [sel, setSel] = useState(() => new Set());
@@ -314,13 +335,12 @@ export default function Instructors() {
       )}
       <DataTable cols={cols} rows={rows} noun="instructors" sort={sort} onSort={(k) => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : 1 }))} page={page} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }}
         actions={(x) => <>
-          <button onClick={() => setParams({ view: x.id }, { replace: true })} aria-label={'View details for ' + x.name} title="View details"><Icon name="eye" small /></button>
-          <button onClick={() => setForm({ record: x })} aria-label={'Edit ' + x.name} title="Edit"><Icon name="edit" small /></button>
+          <button onClick={() => nav(`/instructors/${x.id}`)} aria-label={'View details for ' + x.name} title="View details"><Icon name="eye" small /></button>
+          <button onClick={() => nav(`/instructors/${x.id}/edit`)} aria-label={'Edit ' + x.name} title="Edit"><Icon name="edit" small /></button>
           <button className="del" onClick={() => setDel(x.id)} aria-label={'Delete ' + x.name} title="Delete"><Icon name="trash" small /></button>
         </>}
         empty={<EmptyState title={instructors.length ? 'No instructors match these filters' : 'No instructors yet'} text={active ? 'Try a different search, or clear the filters.' : 'Add one, or import your instructor roster.'} />} />
       <InstructorForm open={!!form} record={form?.record} preset={form?.preset} onClose={() => setForm(null)} />
-      <InstructorView x={viewing} focusRated={params.get('rated') === '1'} onClose={closeView} onEdit={() => { closeView(); setForm({ record: viewing }); }} />
       <Confirm open={!!toDelete} title="Delete instructor?" message={toDelete ? `This removes ${toDelete.name} from Hazdemy.${assigned ? ` They’ll be removed from ${assigned} course${assigned > 1 ? 's' : ''}.` : ''}` : ''} confirmLabel="Delete instructor"
         onClose={() => setDel(null)} onConfirm={async () => { await api.del('/api/instructors/' + del); await reload(); toast('Deleted ' + toDelete.name); setDel(null); }} />
       <InstructorAccounts accounts={signIns} onClose={() => setSignIns(null)} />
@@ -343,6 +363,32 @@ export default function Instructors() {
         <label className="cat-opt"><input type="checkbox" checked={withAccounts} onChange={(e) => setWithAccounts(e.target.checked)} /><span>Also delete their sign-ins <span className="note">(they can no longer sign in as an instructor)</span></span></label>
         {mustType && <div className="fg"><label htmlFor="idel-word">Type <b>DELETE</b> to confirm</label><input id="idel-word" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" /></div>}
       </Dialog>
+    </>
+  );
+}
+
+/** An instructor's own page: /instructors/:id shows the details, /instructors/:id/edit the form. */
+export function InstructorPage({ edit = false }) {
+  const { id } = useParams();
+  const { instructors, courses, loading, reload } = useData();
+  const toast = useToast();
+  const nav = useNavigate();
+  const [params] = useSearchParams();
+  const [del, setDel] = useState(false);
+  const x = instructors.find((i) => i.id === id);
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [id, edit]);
+  if (!x) return loading ? <p className="note">Loading…</p>
+    : <EmptyState title="Instructor not found" text="They may have been deleted or merged into another profile." action={<Link className="btn" to="/instructors">Back to Instructors</Link>} />;
+  if (edit) return <InstructorForm page open record={x} onClose={() => nav(`/instructors/${x.id}`)} />;
+  const assigned = courses.filter((c) => (c.instructors || []).includes(x.name)).length;
+  return (
+    <>
+      <InstructorView page x={x} focusRated={params.get('rated') === '1'} onEdit={() => nav(`/instructors/${x.id}/edit`)} onDelete={() => setDel(true)} />
+      <Confirm open={del} title="Delete instructor?" message={`This removes ${x.name} from Hazdemy.${assigned ? ` They’ll be removed from ${assigned} course${assigned > 1 ? 's' : ''}.` : ''}`} confirmLabel="Delete instructor"
+        onClose={() => setDel(false)} onConfirm={async () => {
+          try { await api.del('/api/instructors/' + x.id); toast('Deleted ' + x.name); setDel(false); nav('/instructors', { replace: true }); await reload(); }
+          catch (e) { toast(e.message); }
+        }} />
     </>
   );
 }

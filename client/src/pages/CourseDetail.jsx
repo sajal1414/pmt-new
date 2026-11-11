@@ -527,7 +527,8 @@ export default function CourseDetail({ back = '/courses', create = false }) {
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}><Icon name={ic} small />{l}{n ? <span className="n">{n}</span> : null}</button>
         ))}
       </div>
-      {tab === 'details' && SECTIONS.map((s) => (
+      {/* who teaches a course is the admin's to set and see: instructors don't get the Instructors section */}
+      {tab === 'details' && SECTIONS.filter((s) => isAdmin || !s.picker).map((s) => (
         <section key={s.t} className="card sec">
           <h2><span className="cico"><Icon name={s.i} small /></span>{s.t}{s.picker && <span className="note"> ({draft.instructors.length} assigned)</span>}
             {s.upload && <button className="btn sm sec-act" onClick={() => (create ? pickOutline() : setOutlineOpen(true))} disabled={create ? reading : dirty} title={!create && dirty ? 'Save your changes first' : 'Fill topics and objectives from a Word outline'}><Icon name="upload" small />Upload from Word</button>}</h2>
