@@ -3,7 +3,7 @@ import { Dialog } from './ui.jsx';
 import Icon from './Icon.jsx';
 import { api } from '../api.js';
 import { useData, useToast } from '../lib/store.jsx';
-import { fmtMins } from '../lib/constants.js';
+import { fmtMins, CODE_PLATFORMS } from '../lib/constants.js';
 import { RichView } from './RichText.jsx';
 
 const LESSON_MODES = [['replace', 'Also turn topics into lessons (replace existing lessons)'], ['append', 'Also turn topics into lessons (add after existing lessons)'], ['keep', 'Only fill Course topics; don’t change lessons']];
@@ -40,11 +40,14 @@ export default function OutlineDialog({ open, onClose, courseId, onDone, courseI
   };
   const update = (i, patch) => setItems((cur) => cur.map((it, j) => (j === i ? { ...it, ...patch } : it)));
   const chosen = items.filter((it) => it.include && !it.error);
+  // a new course needs a code: from the document when it has one, otherwise from the platform chosen here
+  const needsPlatform = (it) => !it.target && !it.parsed?.code;
+  const missingPlatform = chosen.filter((it) => needsPlatform(it) && !it.platform).length;
 
   const apply = async () => {
     setBusy('Saving…'); setError('');
     try {
-      const { results } = await api.post('/api/outlines/apply', { items: chosen.map((it) => ({ token: it.token, courseId: it.target, lessons: mode })) });
+      const { results } = await api.post('/api/outlines/apply', { items: chosen.map((it) => ({ token: it.token, courseId: it.target, lessons: mode, platform: needsPlatform(it) ? it.platform : undefined })) });
       await reload(['courses', 'activity']);
       const ok = results.filter((r) => !r.error), bad = results.filter((r) => r.error);
       const made = ok.filter((r) => r.created).length;
@@ -60,7 +63,8 @@ export default function OutlineDialog({ open, onClose, courseId, onDone, courseI
       subtitle={fixed ? `Fill the course topics, objectives and details of ${fixed.name} from a Word outline.` : 'Upload one or more Word outlines. Hazdemy reads the course topics, objectives, description, audience and prerequisites, and matches each file to a course.'}
       footer={<>
         <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" disabled={!!busy || !chosen.length} onClick={apply}>
+        {missingPlatform > 0 && <span className="note" style={{ marginRight: 'auto' }}>Choose the platform for {missingPlatform} new course{missingPlatform > 1 ? 's' : ''}.</span>}
+        <button className="btn primary" disabled={!!busy || !chosen.length || missingPlatform > 0} onClick={apply}>
           <Icon name="upload" small />{busy === 'Saving…' ? 'Saving…' : chosen.length ? `Apply ${chosen.length} outline${chosen.length > 1 ? 's' : ''}` : 'Apply outlines'}
         </button>
       </>}>
@@ -110,6 +114,17 @@ export default function OutlineDialog({ open, onClose, courseId, onDone, courseI
                           ? <span className="pill ok"><Icon name="check" small />Matched by {it.match.by}</span>
                           : !it.target ? <span className="pill acc">New course</span> : <span className="pill gone">Chosen manually</span>)}
                       </div>
+                      {/* a new course's code: from the document if it has one (nothing to ask), otherwise made from the platform chosen here */}
+                      {!it.target && (p.code
+                        ? <p className="note ol-code"><Icon name="check" small />Course code <b className="code">{p.code}</b> from the document.</p>
+                        : <div className="ol-row ol-plat">
+                            <label htmlFor={'olP' + i}>Platform</label>
+                            <select id={'olP' + i} className={`sel${it.include && !it.platform ? ' need' : ''}`} value={it.platform || ''} onChange={(e) => update(i, { platform: e.target.value })}>
+                              <option value="">Choose a platform…</option>
+                              {CODE_PLATFORMS.map(([name, k]) => <option key={k} value={name}>{name}  (HAZ-{k}-…)</option>)}
+                            </select>
+                            <span className="note">{it.platform ? `Code: the next HAZ-${CODE_PLATFORMS.find(([n]) => n === it.platform)[1]}-#### number` : 'The document has no course code: it’s made from the platform.'}</span>
+                          </div>)}
                       <div className="chips ol-found">
                         <span className={`chip${p.objectives.length ? '' : ' none'}`}>{p.objectives.length} objectives</span>
                         <span className={`chip${p.topics.length ? '' : ' none'}`}>{p.topics.length} topics{mins ? ` · ${fmtMins(mins)}` : ''}</span>

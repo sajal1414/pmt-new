@@ -2553,3 +2553,34 @@ fieldset.ro-fs:disabled .rt-content,fieldset.ro-fs:disabled input,fieldset.ro-fs
 .ro-note{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-radius:12px;background:var(--amb-soft);border:1px solid var(--amb-line);color:var(--ink-2);font-size:13.5px;line-height:1.5}
 .ro-note .i{color:var(--amb-ink);flex:none;margin-top:3px}
 .ro-note .linkbtn{font-size:inherit;padding:0}
+/* bulk assign dialog (many courses × many instructors) */
+.ba{display:flex;flex-direction:column;gap:12px}
+.ba-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.ba-roles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft);flex:1;min-width:300px}
+.ba-role{display:flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 8px;border:0;border-radius:9px;background:transparent;color:var(--ink-2);font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap}
+.ba-role .i{color:var(--c-ink)}
+.ba-role.on{background:var(--c-soft);color:var(--c-ink);box-shadow:inset 0 0 0 1px var(--c-line)}
+.ba-act{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft)}
+.ba-act button{display:flex;align-items:center;gap:4px;height:34px;padding:0 12px;border:0;border-radius:9px;background:transparent;color:var(--ink-2);font-weight:600;cursor:pointer}
+.ba-act button.on{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.ba-act button.on.rm{color:var(--red-ink)}
+.ba-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ba-list{max-height:min(46vh,420px);overflow:auto;border:1px solid var(--line);border-radius:12px}
+.ba-list label{display:flex;gap:12px;align-items:flex-start;padding:9px 12px;border-bottom:1px solid var(--line-soft);cursor:pointer}
+.ba-list label:last-child{border-bottom:0}
+.ba-list label:hover{background:var(--surface-2)}
+.ba-list label.on{background:var(--accent-soft)}
+.ba-list input{margin-top:3px;width:16px;height:16px;accent-color:var(--accent);flex:none}
+.ba-name{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ba-sum{display:flex;align-items:center;gap:8px;margin:0;padding:9px 12px;border-radius:10px;background:var(--ok-soft);color:var(--ink-2);border:1px solid var(--ok-line)}
+.ba-sum.none{background:var(--surface-2);border-color:var(--line)}
+/* new course: the course code made from the platform */
+input.auto-code{font-family:var(--mono);font-weight:700;letter-spacing:.02em;background:var(--surface-2);color:var(--accent-ink);cursor:default}
+input.auto-code:placeholder-shown{font-family:inherit;font-weight:400;letter-spacing:0;color:var(--muted)}
+/* outline import: a new course's platform (for its code), or the code taken from the document */
+.ol-plat{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+.ol-plat label{font-weight:600;font-size:13px;color:var(--ink-2)}
+.ol-plat .sel{min-width:240px}
+.ol-plat .sel.need{border-color:var(--warn-line);box-shadow:0 0 0 3px var(--warn-soft)}
+.ol-code{display:flex;align-items:center;gap:6px;margin:0;color:var(--ok-ink)}
+.ol-code .code{color:var(--ink)}

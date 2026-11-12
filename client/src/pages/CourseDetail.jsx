@@ -16,7 +16,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCustomFields } from '../lib/customFields.js';
 import { useData, useToast } from '../lib/store.jsx';
 import { api } from '../api.js';
-import { STATUSES, OUTLINE, SKILLS, LABLOC, IPOWN, splitList, isURL, fmtDur, fmtMins } from '../lib/constants.js';
+import { STATUSES, OUTLINE, SKILLS, LABLOC, IPOWN, CODE_PLATFORMS, splitList, isURL, fmtDur, fmtMins } from '../lib/constants.js';
 
 const SECTIONS = [
   { t: 'Core Identification & Hierarchy', i: 'layers', g: 'g3', f: [{ k: 'name', l: 'Course name', req: 1, w: 'w2' }, { k: 'status', l: 'Status', type: 'select', o: STATUSES, req: 1 }, { k: 'code', l: 'Course code', req: 1 }, { k: 'ibmCode', l: 'IBM course codes', ph: 'e.g. 6X101G, W701G' }, { k: 'pmt', l: 'On IBM PMT', ph: 'e.g. Yes / No / Planned' }, { k: 'vendor', l: 'Vendor' }, { k: 'platform', l: 'Platform' }, { k: 'portfolio', l: 'Portfolio' }, { k: 'product', l: 'Product' }, { k: 'customFor', l: 'Custom version for (client)', ph: 'Leave empty for a standard course' }] },
@@ -91,6 +91,7 @@ function CourseAuthors({ course, create }) {
     </section>
   );
 }
+
 
 function InstructorPicker({ value, onChange }) {
   const { instructors } = useData();
@@ -493,11 +494,12 @@ export default function CourseDetail({ back = '/courses', create = false }) {
   const location = useLocation();
   const [tab, setTab] = useState(() => location.state?.tab || 'details'); // the Schedule page opens a course on its Schedule tab
   const [errors, setErrors] = useState({});
-  // new course without a code: show the one that will be made (the next in the series the platform's courses use)
+  // new course: show the code that will be made (the next in its platform's series, e.g. HAZ-DA-0073)
   const [autoCode, setAutoCode] = useState('');
   const platformNow = draft?.platform || '';
   useEffect(() => {
     if (!create) return undefined;
+    if (!platformNow) { setAutoCode(''); return undefined; } // the code comes from the platform: none until one is chosen
     const t = setTimeout(() => api.get('/api/courses/next-code?platform=' + encodeURIComponent(platformNow)).then((r) => setAutoCode(r.code)).catch(() => setAutoCode('')), 250);
     return () => clearTimeout(t);
   }, [create, platformNow]);
@@ -520,10 +522,12 @@ export default function CourseDetail({ back = '/courses', create = false }) {
 
   const set = (k) => (v) => { setDraft((d) => ({ ...d, [k]: v })); setDirty(true); };
   const save = async () => {
+    // a new course needs its platform: the course code is made from it
+    if (create && !draft.platform) { setErrors({ platform: 'Choose the platform: the course code is made from it.' }); setTab('details'); toast('Choose the platform first'); return false; }
     setBusy(true); setErrors({});
     try {
       if (create) {
-        const c = await api.post('/api/courses', { ...draft, outlineToken: outlineDoc?.token });
+        const c = await api.post('/api/courses', { ...draft, code: '', outlineToken: outlineDoc?.token }); // the server makes the code
         leaving.current = true; setDirty(false);
         await reload(['courses', 'instructors', 'activity']);
         toast('Created ' + c.name); nav(courseUrl(back, c.id), { replace: true, state: c.accounts?.length ? { accounts: c.accounts } : undefined }); return true;
@@ -617,6 +621,18 @@ export default function CourseDetail({ back = '/courses', create = false }) {
           {s.picker ? <InstructorPicker value={draft.instructors} onChange={set('instructors')} /> : (
             <div className={s.g}>{s.f.map((f) => f.type === 'rich' ? (
               <RichText key={f.k} id={'d-' + f.k} labelClass="lbl" label={f.l} placeholder={f.ph} value={draft[f.k]} onChange={set(f.k)} readOnly={readOnly} />
+            ) : create && f.k === 'platform' ? (
+              // a new course: the platform is chosen from the code categories, and it makes the course code
+              <Field key={f.k} id="d-platform" labelClass="lbl" className={f.w || ''} label="Platform" type="select" hideEmpty
+                options={[{ value: '', label: 'Choose a platform…' }, ...CODE_PLATFORMS.map(([name, k]) => ({ value: name, label: `${name}  (HAZ-${k}-…)` }))]}
+                value={draft.platform || ''} onChange={set('platform')} error={errors.platform} />
+            ) : create && f.k === 'code' ? (
+              // a new course's code is made automatically from its platform
+              <div key={f.k} className={`fg ${f.w || ''}`}>
+                <label className="lbl" htmlFor="d-code">Course code</label>
+                <input id="d-code" readOnly value={autoCode || ''} placeholder="Choose the platform first" className="auto-code" aria-describedby="d-code-note" />
+                <span id="d-code-note" className="note">Made automatically from the platform when you create the course.</span>
+              </div>
             ) : (
               <Field key={f.k} id={'d-' + f.k} labelClass="lbl" className={f.w || ''} label={f.l} type={f.type || 'text'} options={f.o} required={!!f.req && !(create && f.k === 'code')} hideEmpty={!!f.req}
                 placeholder={create && f.k === 'code' ? (autoCode ? `Leave blank for ${autoCode}` : 'Leave blank to make one') : f.ph} step={f.step} value={draft[f.k]} onChange={set(f.k)} error={errors[f.k]} />

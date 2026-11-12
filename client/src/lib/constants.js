@@ -30,3 +30,6 @@ export const fmtMins = (m) => { m = +m || 0; if (!m) return '—'; const h = Mat
 export const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 export const ago = (t) => { const s = (Date.now() - t) / 1000; if (s < 60) return 'Just now'; if (s < 3600) return `${Math.floor(s / 60)} min ago`; if (s < 86400) return `${Math.floor(s / 3600)} h ago`; return `${Math.floor(s / 86400)} d ago`; };
 export const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+
+/** Platforms a new course is created under, with the code series each one gets (HAZ-DA-0001…; see nextCode on the server). */
+export const CODE_PLATFORMS = [['Data & AI', 'DA'], ['Sustainability', 'SU'], ['Security', 'SE'], ['Automation', 'AU'], ['IT Infrastructure', 'IT'], ['Other', 'OT']];

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { DataTable, Dialog, PageHead, StatusPill, EmptyState, Dash, sortRows, downloadText, toCSV } from '../components/ui.jsx';
 import { InstructorForm, InstructorView } from './Instructors.jsx';
+import BulkAssign from '../components/BulkAssign.jsx';
 import OutlineDialog from '../components/OutlineDialog.jsx';
 import { htmlToText } from '../lib/richtext.js';
 import { useData, useToast } from '../lib/store.jsx';
@@ -95,6 +96,7 @@ export default function Courses() {
   const [inst, setInst] = useState(null); // { view: instructor } | { edit: instructor } | { add: name }
   const [typed, setTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [assignIds, setAssignIds] = useState(null); // selected course ids, while choosing instructors to assign
   useEffect(() => { setSel((s0) => { const ids = new Set(courses.map((c) => c.id)), n = new Set([...s0].filter((id) => ids.has(id))); return n.size === s0.size ? s0 : n; }); }, [courses]);
   const toggle = (id) => setSel((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allOn = rows.length > 0 && rows.every((c) => sel.has(c.id)), someOn = rows.some((c) => sel.has(c.id));
@@ -163,6 +165,7 @@ export default function Courses() {
           {!allOn && rows.length > 0 && <button className="linkbtn" onClick={toggleAll}>Select all {rows.length} listed</button>}
           <span className="grow" />
           <button className="btn sm primary" onClick={() => setPdfFor(picked.map((c) => c.id))}><Icon name="download" small />{picked.length === 1 ? 'Download PDF' : `Download ${picked.length} PDFs (ZIP)`}</button>
+          <button className="btn sm" onClick={() => setAssignIds(picked.map((c) => c.id))}><Icon name="people" small />Assign instructors</button>
           <button className="btn sm" onClick={() => setCatalog(true)}><Icon name="book" small />Catalog</button>
           <button className="btn sm" onClick={() => downloadText(csvOf(picked), `atlas-courses-selected-${new Date().toISOString().slice(0, 10)}.csv`)}><Icon name="table" small />Export CSV</button>
           <button className="btn sm danger-o" onClick={() => { setTyped(''); setConfirmDel(true); }}><Icon name="trash" small />Delete</button>
@@ -182,6 +185,7 @@ export default function Courses() {
         <p className="note" style={{ margin: 0 }}>Learner enrollments, reviews and payments for these courses are kept as history.</p>
         {mustType && <div className="fg"><label htmlFor="del-word">Type <b>DELETE</b> to confirm</label><input id="del-word" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" /></div>}
       </Dialog>
+      <BulkAssign fixed="courses" ids={assignIds} onClose={() => setAssignIds(null)} onDone={() => setSel(new Set())} />
       <InstructorView x={inst?.view} onClose={() => setInst(null)} onEdit={() => setInst(inst.view.id ? { edit: inst.view } : { add: inst.view.name })} />
       <InstructorForm open={!!(inst?.edit || inst?.add)} record={inst?.edit} preset={inst?.add ? { name: inst.add } : undefined} onClose={() => setInst(null)} />
       <CatalogDialog open={catalog} onClose={() => setCatalog(false)} defaultScope={picked.length ? 'selected' : 'all'} scopes={[

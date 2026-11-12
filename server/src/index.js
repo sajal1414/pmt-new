@@ -319,15 +319,25 @@ app.get('/api/courses', wrap((req) => visibleCourses(req.user)));
 // course codes made when none is typed: the next number in the series the platform's courses use (HAZ-DA-0051),
 // and for a client version the original's code plus 3 letters of the client (HAZ-AT-008-MAC)
 const taken = (d, code) => d.courses.some((x) => String(x.code).trim().toLowerCase() === code.toLowerCase());
+/* Course codes: HAZ-<category>-<number>, four digits, one series per category (HAZ-DA-0001, HAZ-SU-0001, …).
+   A course's platform decides its category; any platform not listed here is Other (OT). */
+const CODE_CATEGORIES = [
+  ['DA', 'Data & AI', ['data & ai', 'data and ai', 'data', 'ai', 'data ai']],
+  ['SU', 'Sustainability', ['sustainability']],
+  ['SE', 'Security', ['security']],
+  ['AU', 'Automation', ['automation']],
+  ['IT', 'IT Infrastructure', ['it infrastructure', 'infrastructure', 'it']]
+];
+const codeCategory = (platform) => {
+  const p = String(platform || '').trim().toLowerCase();
+  return CODE_CATEGORIES.find(([, , names]) => names.includes(p))?.[0] || 'OT';
+};
 function nextCode(d, platform = '') {
-  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
-  const series = (list) => { const m = new Map(); for (const c of list) { const x = /^(.*?)(\d+)$/.exec(String(c.code || '').trim()); if (x && !c.baseCourse) m.set(x[1], (m.get(x[1]) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1])[0]?.[0]; };
-  const word = String(platform).replace(/[^a-z]/gi, '').slice(0, 2).toUpperCase();
-  const prefix = series(d.courses.filter((c) => platform && same(c.platform, platform))) || (word ? `HAZ-${word}-` : series(d.courses) || 'HAZ-');
-  const nums = d.courses.map((c) => String(c.code || '').trim()).filter((c) => c.toLowerCase().startsWith(prefix.toLowerCase()) && /^\d+$/.test(c.slice(prefix.length)));
-  const width = Math.max(3, ...nums.map((c) => c.length - prefix.length));
+  const prefix = `HAZ-${codeCategory(platform)}-`;
+  // the next number after the highest one used in this series (older 3-digit codes like HAZ-DA-030 count too)
+  const nums = d.courses.map((c) => String(c.code || '').trim()).filter((c) => c.toUpperCase().startsWith(prefix) && /^\d+$/.test(c.slice(prefix.length)));
   let n = Math.max(0, ...nums.map((c) => +c.slice(prefix.length))) + 1, code;
-  while (taken(d, (code = prefix + String(n).padStart(width, '0')))) n++;
+  while (taken(d, (code = prefix + String(n).padStart(4, '0')))) n++;
   return code;
 }
 function customCode(d, original, client) {
@@ -624,6 +634,49 @@ app.put('/api/courses/:id/authors', wrap((req) => {
   if (req.body.keepText === false && c.author && !d.instructors.some((i) => textIs(i, c))) { c.author = ''; changed.push('-text'); }
   if (changed.length) { log(`Authors of ${c.code} updated`); save(); }
   return withAuthors(c, d);
+}));
+/**
+ * Link many courses and many instructors at once (admins).
+ * { courseIds, instructorIds, role: 'teaching' | 'author' | 'qualified', action: 'add' | 'remove' }
+ *  - teaching: the course's instructors · author: the instructor's Course Author list (and a matching author text)
+ *  - qualified: the instructor's Qualified to teach list (hand-added; teaching a course counts anyway)
+ * Every pair is applied in one save; pairs already in the wanted state are counted as unchanged.
+ */
+app.post('/api/courses/bulk-assign', wrap((req) => {
+  if (req.user.role !== 'Admin') throw new HttpError(403, 'Only admins can assign courses.');
+  const d = load(), b = req.body || {};
+  const role = ['teaching', 'author', 'qualified'].includes(b.role) ? b.role : '', add = b.action !== 'remove';
+  if (!role) throw new HttpError(422, 'Choose Teaching, Course Author or Qualified to teach.');
+  const cids = new Set((Array.isArray(b.courseIds) ? b.courseIds : []).map(String)), iids = new Set((Array.isArray(b.instructorIds) ? b.instructorIds : []).map(String));
+  const courses = d.courses.filter((c) => cids.has(c.id)), insts = d.instructors.filter((i) => iids.has(i.id));
+  if (!courses.length || !insts.length) throw new HttpError(422, 'Choose at least one course and one instructor.');
+  if (courses.length * insts.length > 20000) throw new HttpError(422, 'That’s too many at once. Choose fewer courses or instructors.');
+  const dropToken = (list, c) => splitList(list || '').filter((t) => !sameName(t, c.code) && !sameName(t, c.name)).join(', ');
+  let changed = 0, unchanged = 0;
+  for (const c of courses) for (const i of insts) {
+    let did = false;
+    if (role === 'teaching') {
+      const on = teaches(i, c);
+      if (add && !on) { c.instructors = [...(c.instructors || []), i.name]; did = true; }
+      if (!add && on) { c.instructors = (c.instructors || []).filter((n) => !sameName(n, i.name)); did = true; }
+    } else if (role === 'author') {
+      const on = isAuthor(i, c);
+      if (add && !on) { makeAuthor(i, c); did = true; }
+      if (!add && on) { if (listsCourse(i, c)) i.canTeach = dropToken(i.canTeach, c); if (textIs(i, c)) c.author = ''; did = true; }
+    } else {
+      const on = listsQualified(i, c);
+      if (add && !on) { i.qualified = [...splitList(i.qualified || ''), c.code].filter(Boolean).join(', '); did = true; }
+      if (!add && on) { i.qualified = dropToken(i.qualified, c); did = true; }
+    }
+    if (did) { changed++; if (role === 'teaching') c.updated = new Date().toISOString(); } else unchanged++;
+  }
+  if (changed) {
+    const what = { teaching: 'as instructors', author: 'as Course Authors', qualified: 'as Qualified to teach' }[role];
+    log(`${add ? 'Assigned' : 'Removed'} ${insts.length} instructor${insts.length === 1 ? '' : 's'} ${what} ${add ? 'to' : 'from'} ${courses.length} course${courses.length === 1 ? '' : 's'}`);
+    if (role === 'teaching') syncInstructors(d);
+    save();
+  }
+  return { changed, unchanged, courses: courses.length, instructors: insts.length };
 }));
 app.delete('/api/courses/:id', wrap((req, res) => {
   const d = load(), i = d.courses.findIndex((x) => x.id === req.params.id);
@@ -1152,11 +1205,16 @@ app.post('/api/outlines/apply', wrap((req) => {
     if (c && req.user.role !== 'Admin' && !(inst && isAuthor(inst, c))) { results.push({ filename: p.filename, error: 'Only this course’s authors can change its outline.' }); continue; }
     const created = !c;
     if (created) {
-      let code = p.parsed.code || 'OUTLINE-' + (d.seq + 1);
+      // a new course: the code in the document if it has one; otherwise the next one for the platform chosen for it
+      const platform = String(it.platform || '').trim().slice(0, 120);
+      let code = String(p.parsed.code || '').trim();
+      if (!code && !platform) { results.push({ filename: p.filename, error: 'Choose the platform for the new course: its course code is made from it.' }); continue; }
+      if (!code) code = nextCode(d, platform);
       while (d.courses.some((x) => x.code.toLowerCase() === code.toLowerCase())) code += '-2';
-      c = blankCourse({ name: p.parsed.name || p.filename.replace(/\.[^.]+$/, ''), code, status: 'Draft', instructors: inst ? [inst.name] : [] });
+      c = blankCourse({ name: p.parsed.name || p.filename.replace(/\.[^.]+$/, ''), code, platform, status: 'Draft', instructors: inst ? [inst.name] : [] });
       c.id = uid('c');
       d.courses.unshift(c);
+      if (inst) makeAuthor(inst, c); // a course an instructor creates is theirs
     }
     const { patch, lessons } = outlineToCourse(p.parsed, created ? null : c, uid);
     if (!created) { delete patch.name; delete patch.code; }

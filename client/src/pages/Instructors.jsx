@@ -10,6 +10,7 @@ import SignaturePad from '../teach/SignaturePad.jsx';
 import { useCustomFields } from '../lib/customFields.js';
 import InstructorAccounts, { TempPassword } from '../components/InstructorAccounts.jsx';
 import LanguagePicker from '../components/LanguagePicker.jsx';
+import BulkAssign from '../components/BulkAssign.jsx';
 
 const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'vendor', 'travel', 'languages', 'comments'];
 const FIELDS = [
@@ -564,6 +565,7 @@ export default function Instructors() {
   const toDelete = instructors.find((i) => i.id === del);
   const assigned = toDelete ? courses.filter((c) => c.instructors.includes(toDelete.name)).length : 0;
   const [signIns, setSignIns] = useState(null);
+  const [assignIds, setAssignIds] = useState(null); // selected instructor ids, while choosing courses to assign them
   const makeSignIns = async () => {
     try { const r = await api.post('/api/instructors/accounts', {}); if (r.accounts.length) setSignIns(r.accounts); else toast('Every instructor with an email already has a sign-in'); } catch (e) { toast(e.message); }
   };
@@ -589,6 +591,7 @@ export default function Instructors() {
           <b><span className="num">{sel.size}</span> instructor{sel.size === 1 ? '' : 's'} selected</b>
           {!allOn && rows.length > 0 && <button className="linkbtn" onClick={toggleAll}>Select all {rows.length} listed</button>}
           <span className="grow" />
+          <button className="btn sm" onClick={() => setAssignIds(picked.map((x) => x.id))}><Icon name="book" small />Assign courses</button>
           <button className="btn sm" onClick={() => downloadText(toCSV(picked, EXPORT_KEYS), `atlas-instructors-selected-${new Date().toISOString().slice(0, 10)}.csv`)}><Icon name="table" small />Export CSV</button>
           <button className="btn sm danger-o" onClick={() => { setTyped(''); setBulkDel(true); }}><Icon name="trash" small />Delete</button>
           <button className="btn sm" onClick={() => setSel(new Set())}><Icon name="x" small />Clear</button>
@@ -603,6 +606,7 @@ export default function Instructors() {
       <Confirm open={!!toDelete} title="Delete instructor?" message={toDelete ? `This removes ${toDelete.name} from Hazdemy.${assigned ? ` They’ll be removed from ${assigned} course${assigned > 1 ? 's' : ''}.` : ''}` : ''} confirmLabel="Delete instructor"
         onClose={() => setDel(null)} onConfirm={async () => { await api.del('/api/instructors/' + del); await reload(); toast('Deleted ' + toDelete.name); setDel(null); }} />
       <InstructorAccounts accounts={signIns} onClose={() => setSignIns(null)} />
+      <BulkAssign fixed="instructors" ids={assignIds} onClose={() => setAssignIds(null)} onDone={() => setSel(new Set())} />
       <Dialog open={!!merge} onClose={() => setMerge(null)} title="Merge into one instructor?" subtitle="Choose the profile to keep. The other one’s courses, batches, sign-in, messages and reviews move to it, its details fill any gaps, and then it’s removed. A backup is saved first."
         footer={<><button className="btn" onClick={() => setMerge(null)}>Cancel</button><button className="btn primary" onClick={doMerge}><Icon name="check" small />Merge</button></>}>
         {merge && <div className="dup-pick">{[merge.a, merge.b].map((x) => (
