@@ -14,7 +14,7 @@ import { catalogPdf, catalogXlsx, CATALOG_FIELDS, CATALOG_DEFAULTS } from './cat
 import JSZip from 'jszip';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { generateSample, clearSample, ensureLearning, teachingCourses, isoDay } from './learning.js';
+import { generateSample, clearSample, ensureLearning, teachingCourses, isoDay, isAuthor, authorsOf, listsCourse, textIs } from './learning.js';
 import { mountTeach, signatureProblem } from './teach.js';
 import { mountLearn, ensureStudent, handleStripeWebhook } from './learn.js';
 import { mountAdmin } from './admin.js';
@@ -263,20 +263,28 @@ const teaches = (inst, c) => (c.instructors || []).some((n) => n.trim().toLowerC
 function assertOwnCourse(user, c) {
   if (user.role === 'Admin') return;
   const inst = instructorOf(user);
-  if (!inst || !teaches(inst, c)) throw new HttpError(403, 'You can only change courses you teach.');
+  // the instructors of a course and its authors (who own the content) may change it
+  if (!inst || !(teaches(inst, c) || isAuthor(inst, c))) throw new HttpError(403, 'You can only change courses you teach or author.');
 }
-/* Instructors only see the courses they teach, and on those only themselves as instructor and only their own batches:
-   who else teaches a course (its other instructors, and the batches another instructor runs) is for admins only.
-   A batch with no instructor set belongs to the course, so every instructor of the course sees it. Admins see everything. */
+/* Instructors see the courses they teach and the courses they author. On those they only see themselves (as instructor
+   and/or author) and only their own batches: who else teaches or authors a course, and the batches another instructor
+   runs, are for admins only. A batch with no instructor set belongs to the course, so every instructor of the course
+   sees it; an author who doesn't teach the course sees no batches (and no co-instructors). Admins see everything. */
 const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 const othersBatch = (b, inst) => !!b.instructor && !sameName(b.instructor, inst.name);
-const maskCourse = (c, inst) => ({ ...c, instructors: [inst.name], schedules: (c.schedules || []).filter((b) => !othersBatch(b, inst)) });
-/** What `user` may read of course `c`: the course itself (admins), it masked (its instructor), or null. */
+const maskCourse = (c, inst) => {
+  const teaching = teaches(inst, c), author = isAuthor(inst, c);
+  return { ...c, instructors: teaching ? [inst.name] : [], schedules: teaching ? (c.schedules || []).filter((b) => !othersBatch(b, inst)) : [],
+    author: author ? inst.name : '', authors: author ? [inst.name] : [], authorText: '', teaching, authoring: author };
+};
+/** Admins: the course with its authors worked out (`authors` names, `authorText` when that's no instructor). */
+const withAuthors = (c, d = load()) => { const a = authorsOf(d, c); return { ...c, authors: a.names, authorText: a.text }; };
+/** What `user` may read of course `c`: the course itself (admins), it masked (its instructor or author), or null. */
 function courseFor(user, c) {
   if (!c) return null;
-  if (user.role === 'Admin') return c;
+  if (user.role === 'Admin') return withAuthors(c);
   const inst = instructorOf(user);
-  return inst && teaches(inst, c) ? maskCourse(c, inst) : null;
+  return inst && (teaches(inst, c) || isAuthor(inst, c)) ? maskCourse(c, inst) : null;
 }
 const visibleCourses = (user, list = load().courses) => list.map((c) => courseFor(user, c)).filter(Boolean);
 function readableCourse(user, id) {
@@ -291,6 +299,8 @@ function readableCourse(user, id) {
  */
 function keepHidden(stored, next, inst) {
   next.instructors = [...(stored.instructors || [])];
+  next.author = stored.author ?? ''; // who authors a course is set by admins (and the instructors' Author lists)
+  if (!teaches(inst, stored)) { next.schedules = stored.schedules || []; return; } // an author who doesn't teach it: batches untouched, not made an instructor
   if (!teaches(inst, next)) next.instructors.push(inst.name); // can't remove yourself from your own course
   const hidden = (stored.schedules || []).filter((b) => othersBatch(b, inst)), hiddenIds = new Set(hidden.map((b) => b.id));
   const own = (next.schedules || []).filter((b) => !hiddenIds.has(b.id)).map((b) => (othersBatch(b, inst) ? { ...b, instructor: inst.name } : b));
@@ -335,7 +345,7 @@ app.post('/api/schedule/bulk-delete', wrap((req) => {
 app.get('/api/schedule', wrap((req) => {
   const d = load(), inst = instructorOf(req.user);
   if (req.user.role !== 'Admin' && !inst) throw new HttpError(403, 'Only admins and instructors can see the schedule.');
-  const list = visibleCourses(req.user, d.courses); // an instructor's own courses, masked
+  const list = visibleCourses(req.user, inst ? d.courses.filter((c) => teaches(inst, c)) : d.courses); // an instructor's batches: courses they teach (not ones they only author)
   const courseOf = (c) => ({ id: c.id, code: c.code, name: c.name, customFor: c.customFor || '', duration: c.duration ?? '', instructors: c.instructors || [], maxStudents: c.maxStudents ?? '' });
   // the courses a batch can be added to, and every batch with its course
   return { courses: list.map(courseOf), batches: list.flatMap((c) => (c.schedules || []).map((b) => ({ ...b, course: courseOf(c) }))) };
@@ -565,6 +575,32 @@ app.put('/api/courses/:id', wrap((req) => {
   d.courses[i] = next; log(`Course ${next.name} updated`); syncInstructors(d);
   const accounts = batchAccounts(d, next); save();
   return { ...courseFor(req.user, next), accounts };
+}));
+/**
+ * Set who authors a course (admins): { authors: [instructor names], keepText: bool }. Kept in step with each
+ * instructor's "Course Author" list: the course is added to the lists of new authors and taken off the lists of
+ * removed ones. The course's own author text is cleared when it pointed at a removed author, or when keepText is false.
+ */
+app.put('/api/courses/:id/authors', wrap((req) => {
+  if (req.user.role !== 'Admin') throw new HttpError(403, 'Only admins can change who authors a course.');
+  const d = load(), c = d.courses.find((x) => x.id === req.params.id);
+  if (!c) throw new HttpError(404, 'Course not found.');
+  const want = new Set((Array.isArray(req.body.authors) ? req.body.authors : []).map((n) => String(n).trim().toLowerCase()).filter(Boolean));
+  const unknown = [...want].filter((n) => !d.instructors.some((i) => i.name.trim().toLowerCase() === n));
+  if (unknown.length) throw new HttpError(422, `Not in the instructor list: ${unknown.join(', ')}.`);
+  const changed = [];
+  for (const i of d.instructors) {
+    const should = want.has(i.name.trim().toLowerCase());
+    if (should && !isAuthor(i, c)) { i.canTeach = [...splitList(i.canTeach || ''), c.code].filter(Boolean).join(', '); changed.push(`+${i.name}`); }
+    if (!should && isAuthor(i, c)) {
+      if (listsCourse(i, c)) i.canTeach = splitList(i.canTeach || '').filter((t) => !sameName(t, c.code) && !sameName(t, c.name)).join(', ');
+      if (textIs(i, c)) c.author = '';
+      changed.push(`-${i.name}`);
+    }
+  }
+  if (req.body.keepText === false && c.author && !d.instructors.some((i) => textIs(i, c))) { c.author = ''; changed.push('-text'); }
+  if (changed.length) { log(`Authors of ${c.code} updated`); save(); }
+  return withAuthors(c, d);
 }));
 app.delete('/api/courses/:id', wrap((req, res) => {
   const d = load(), i = d.courses.findIndex((x) => x.id === req.params.id);
@@ -1090,7 +1126,7 @@ app.post('/api/outlines/apply', wrap((req) => {
     let c = it.courseId ? d.courses.find((x) => x.id === it.courseId) : null;
     if (it.courseId && !c) { results.push({ filename: p.filename, error: 'That course no longer exists.' }); continue; }
     const inst = instructorOf(req.user);
-    if (c && req.user.role !== 'Admin' && !(inst && teaches(inst, c))) { results.push({ filename: p.filename, error: 'You can only update courses you teach.' }); continue; }
+    if (c && req.user.role !== 'Admin' && !(inst && (teaches(inst, c) || isAuthor(inst, c)))) { results.push({ filename: p.filename, error: 'You can only update courses you teach or author.' }); continue; }
     const created = !c;
     if (created) {
       let code = p.parsed.code || 'OUTLINE-' + (d.seq + 1);

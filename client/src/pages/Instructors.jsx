@@ -372,12 +372,21 @@ function CoursesPanel({ x }) {
   const teaching = courses.filter((c) => (c.instructors || []).some((n) => sameName(n, x.name)));
   const codes = { qualified: splitList(x.qualified).filter(Boolean), author: splitList(x.canTeach).filter(Boolean) };
   const isTeaching = (c) => teaching.some((t) => t.id === c.id);
-  const inList = (key, c) => codes[key].some((t) => byCode(t)?.id === c.id);
+  // authorship comes from the server (`authors` on each course): the Author list, or the course's imported author text
+  const authoring = courses.filter((c) => (c.authors || []).some((n) => sameName(n, x.name)));
+  const isAuthoring = (c) => authoring.some((a) => a.id === c.id);
+  const inList = (key, c) => (key === 'author' ? isAuthoring(c) : codes[key].some((t) => byCode(t)?.id === c.id));
   // each list as rows: { key, c (course or null), text (what's stored) }
   const rows = {
     teaching: teaching.map((c) => ({ key: c.id, c })),
-    qualified: codes.qualified.map((t) => ({ key: t, c: byCode(t) || null, text: t })),
-    author: codes.author.map((t) => ({ key: t, c: byCode(t) || null, text: t }))
+    author: [...authoring.map((c) => ({ key: c.id, c })), ...codes.author.filter((t) => !byCode(t)).map((t) => ({ key: t, c: null, text: t }))],
+    qualified: codes.qualified.map((t) => ({ key: t, c: byCode(t) || null, text: t }))
+  };
+  // a course's authors are set on the course, which keeps every instructor's Author list in step
+  const setAuthor = async (c, on) => {
+    const list = on ? [...(c.authors || []), x.name] : (c.authors || []).filter((n) => !sameName(n, x.name));
+    await api.put(`/api/courses/${c.id}/authors`, { authors: list, keepText: true });
+    await reload(['courses', 'instructors', 'activity']); toast(on ? `${c.code} added to Course Author` : `${c.code} removed from Course Author`);
   };
   const field = { qualified: 'qualified', author: 'canTeach' };
   const saveList = async (key, list, msg) => {
@@ -392,12 +401,14 @@ function CoursesPanel({ x }) {
   const run = async (id, fn) => { setBusy(id); try { await fn(); } catch (e) { toast(e.message); } finally { setBusy(''); } };
   const add = (c) => run(c.id, async () => {
     if (tab === 'teaching') await setTeaching(c, true);
-    else await saveList(tab, [...codes[tab], c.code], `${c.code} added to ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}`);
+    else if (tab === 'author') await setAuthor(c, true);
+    else await saveList(tab, [...codes[tab], c.code], `${c.code} added to Qualified to teach`);
     setQ(''); setOpen(false);
   });
   const drop = (r) => run(r.key, async () => {
     if (tab === 'teaching') await setTeaching(r.c, false);
-    else await saveList(tab, codes[tab].filter((t) => t !== r.text), `${r.c?.code || r.text} removed from ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}`);
+    else if (tab === 'author' && r.c) await setAuthor(r.c, false);
+    else await saveList(tab, codes[tab].filter((t) => t !== r.text), `${r.text} removed from ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}`);
     setRemove(null);
   });
   const s = q.trim().toLowerCase();

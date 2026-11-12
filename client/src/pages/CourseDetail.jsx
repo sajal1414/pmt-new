@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Confirm, Dialog, Feedback, Field, StatusPill } from '../components/ui.jsx';
@@ -24,9 +24,73 @@ const SECTIONS = [
   { t: 'Modality, Duration & Outline Tracking', i: 'cal', g: 'g4', f: [{ k: 'delivery', l: 'Modality', ph: 'ILT' }, { k: 'duration', l: 'Duration (days)', type: 'number', step: '0.05' }, { k: 'hours', l: 'Number of hours', type: 'number', step: '0.5' }, { k: 'outlineStatus', l: 'Course outline status', type: 'select', o: OUTLINE }, { k: 'outline', l: 'Link to course outline', w: 'wf', ph: 'https://… or document name' }] },
   { t: 'Course Topics & Objectives', i: 'list', g: 'g2', upload: true, f: [{ k: 'topics', l: 'Course topics', type: 'rich', ph: 'Add the topics covered, or upload a Word outline…' }, { k: 'objectives', l: 'Learning objectives', type: 'rich', ph: 'What learners will be able to do…' }] },
   { t: 'Curriculum, Audience & Lab Specifications', i: 'book', g: 'g3', f: [{ k: 'description', l: 'Course description', type: 'textarea', w: 'wf' },{ k: 'skill', l: 'Skill level', type: 'select', o: SKILLS }, { k: 'maxStudents', l: 'Max students', type: 'number', step: '1' }, { k: 'labConfig', l: 'Lab configuration' }, { k: 'prereqs', l: 'Pre reqs', type: 'textarea' }, { k: 'persona', l: 'Persona', type: 'textarea' }, { k: 'deliveryNotes', l: 'Delivery instruction notes', type: 'textarea' }] },
-  { t: 'Operations, Schedule & Ownership', i: 'clock', g: 'g4', f: [{ k: 'labLocation', l: 'Lab location (ITZ, Hazdemy, Instructor owned, N/A)', type: 'select', o: LABLOC, w: 'w2' }, { k: 'ipOwner', l: 'IP owner (Hazdemy, SubK)', type: 'select', o: IPOWN }, { k: 'author', l: 'Course author (name or email)' }, { k: 'planned', l: 'Planned completion date', type: 'date' }, { k: 'release', l: 'Release date', type: 'date' }, { k: 'retire', l: 'Retire date', type: 'date' }, { k: 'ibmRetire', l: 'IBM retirement date', type: 'date' }] },
+  { t: 'Operations, Schedule & Ownership', i: 'clock', g: 'g4', f: [{ k: 'labLocation', l: 'Lab location (ITZ, Hazdemy, Instructor owned, N/A)', type: 'select', o: LABLOC, w: 'w2' }, { k: 'ipOwner', l: 'IP owner (Hazdemy, SubK)', type: 'select', o: IPOWN }, { k: 'planned', l: 'Planned completion date', type: 'date' }, { k: 'release', l: 'Release date', type: 'date' }, { k: 'retire', l: 'Retire date', type: 'date' }, { k: 'ibmRetire', l: 'IBM retirement date', type: 'date' }] },
   { t: 'Financials, Credentials & Metadata', i: 'badge', g: 'g4', f: [{ k: 'dailyRate', l: 'Instructor daily rate' }, { k: 'materialsCost', l: 'Materials cost' }, { k: 'labCost', l: 'Lab cost' }, { k: 'learningPath', l: 'Learning path' }, { k: 'badge', l: 'Badge' }, { k: 'certification', l: 'Certification' }, { k: 'recordSource', l: 'Record source', w: 'w2' }, { k: 'notes', l: 'Notes', type: 'textarea', w: 'wf' }] }
 ];
+
+/**
+ * "Course Author": the instructors who own this course's content. Kept in step with each instructor's Author list
+ * (Instructors → their page → Author tab) and saved straight away, separately from "Save changes".
+ * An author text from an import that isn't anyone in the instructor list shows as a separate chip.
+ */
+function CourseAuthors({ course, create }) {
+  const { instructors, reload } = useData();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
+  }, []);
+  const authors = course?.authors || [];
+  const s = q.trim().toLowerCase();
+  const byName = (n) => instructors.find((i) => i.name.toLowerCase() === n.toLowerCase());
+  const options = instructors.filter((i) => !authors.some((n) => n.toLowerCase() === i.name.toLowerCase())
+    && (!s || `${i.name} ${i.email} ${i.skills} ${i.product}`.toLowerCase().includes(s))).slice(0, 40);
+  const send = async (list, keepText, msg) => {
+    setBusy(true);
+    try { await api.put(`/api/courses/${course.id}/authors`, { authors: list, keepText }); await reload(['courses', 'instructors', 'activity']); toast(msg); }
+    catch (x) { toast(x.message); } finally { setBusy(false); }
+  };
+  return (
+    <section className="card sec ca-card">
+      <h2><span className="cico ca-ico"><Icon name="edit" small /></span>Course Author <span className="note">({authors.length + (course?.authorText ? 1 : 0)})</span></h2>
+      {create ? <p className="note" style={{ margin: 0 }}>Add the course’s authors once it’s created.</p> : (<>
+        <p className="note" style={{ margin: 0 }}>Instructors who own this course’s content. They can open and edit it from their portal, even if they don’t teach it. Saved straight away.</p>
+        <div className="assigned">
+          {authors.map((n) => { const i = byName(n); return (
+            <span key={n} className="ichip ca-chip">
+              {i ? <Link className="ichip-name" to={`/instructors/${i.id}`} title={`Open ${n}’s page`}>{n}</Link> : n}
+              <button type="button" disabled={busy} onClick={() => send(authors.filter((x) => x !== n), true, `${n} is no longer an author of ${course.code}`)} aria-label={'Remove ' + n}><Icon name="x" small /></button></span>
+          ); })}
+          {course?.authorText && (
+            <span className="ichip ext" title="From an import; not anyone in the instructor list">{course.authorText} <span className="note">(not an instructor)</span>
+              <button type="button" disabled={busy} onClick={() => send(authors, false, 'Author text removed')} aria-label={'Remove ' + course.authorText}><Icon name="x" small /></button></span>
+          )}
+          {!authors.length && !course?.authorText && <span className="note">No authors yet.</span>}
+        </div>
+        <div className="picker" ref={box}>
+          <label className="pick-in" htmlFor="caQ"><Icon name="plus" small /><span className="sr">Add an author</span>
+            <input id="caQ" placeholder="Add an author: search instructors by name, email or skill…" autoComplete="off" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} /></label>
+          {open && (
+            <div className="pick-pop ca-pop"><div className="pick-list">
+              {options.length ? options.map((i) => (
+                <button key={i.id} type="button" className="iv-opt" disabled={busy} onClick={() => { setQ(''); setOpen(false); send([...authors, i.name], true, `${i.name} added as an author of ${course.code}`); }}>
+                  <span className="iv-opt-n"><b>{i.name}</b> <span className="note">{[i.email, i.product].filter(Boolean).join(' · ')}</span></span><span />
+                  <span className="iv-opt-a"><Icon name="plus" small />Add</span>
+                </button>
+              )) : <p className="note" style={{ padding: 14, margin: 0 }}>{s ? `No instructor matches “${q}”.` : 'Every instructor is already an author.'}</p>}
+            </div></div>
+          )}
+        </div>
+      </>)}
+    </section>
+  );
+}
 
 function InstructorPicker({ value, onChange }) {
   const { instructors } = useData();
@@ -398,6 +462,7 @@ export default function CourseDetail({ back = '/courses', create = false }) {
   const [blank] = useState(() => emptyCourse(isAdmin));
   const custom = useCustomFields().courses;
   const saved = create ? blank : courses.find((c) => c.id === id);
+  const authorOnly = !isAdmin && saved?.teaching === false; // an instructor who authors this course but doesn't teach it
   const leaving = useRef(false); // just created: open the new course without the unsaved-changes question
   // new course: a Word outline read into the form; its file is attached when the course is created
   const [outlineDoc, setOutlineDoc] = useState(null); // { token, filename }
@@ -461,7 +526,8 @@ export default function CourseDetail({ back = '/courses', create = false }) {
         await reload(['courses', 'instructors', 'activity']);
         toast('Created ' + c.name); nav(courseUrl(back, c.id), { replace: true, state: c.accounts?.length ? { accounts: c.accounts } : undefined }); return true;
       }
-      const r = await api.put('/api/courses/' + id, draft);
+      const { author: _author, authors: _authors, authorText: _text, ...body } = draft; // authors are set in the Course Author card
+      const r = await api.put('/api/courses/' + id, body);
       setDirty(false); await reload(['courses', 'instructors', 'activity', 'users']); setDraft(null); toast('Saved ' + draft.name);
       if (r.accounts?.length) setAccounts(r.accounts);
       return true;
@@ -523,16 +589,16 @@ export default function CourseDetail({ back = '/courses', create = false }) {
         <div className="cv-bar nc-doc"><span className="cv-for"><Icon name="file" small />Filled from <b>{outlineDoc.filename}</b> · the file is attached as the course outline when you create the course. Check the fields below.</span>
           <button type="button" className="linkbtn" onClick={() => setOutlineDoc(null)} title="Keep the filled-in fields but don't attach the file">Don't attach</button></div>
       )}
-      {tab !== 'schedule' && <NextBatchBar batches={draft.schedules} onAll={() => setTab('schedule')} allLabel="Manage schedule"
+      {tab !== 'schedule' && !authorOnly && <NextBatchBar batches={draft.schedules} onAll={() => setTab('schedule')} allLabel="Manage schedule"
         none={<button type="button" className="nb nb-none" onClick={() => setTab('schedule')}><Icon name="cal" small />No upcoming batch scheduled. <b>Add one</b></button>} />}
       <div className="tabs" role="tablist" aria-label="Course sections">
-        {[['details', 'file', 'Course Details & All Fields'], ['lessons', 'book', 'Curriculum & Lessons', draft.lessons.length], ['schedule', 'clock', 'Schedule', (draft.schedules || []).filter((b) => b.endDate >= new Date().toISOString().slice(0, 10)).length], ['syllabus', 'eye', 'Syllabus Preview'], !create && ['reviews', 'star', 'Reviews', rated?.count]].filter(Boolean).map(([t, ic, l, n]) => (
+        {[['details', 'file', 'Course Details & All Fields'], ['lessons', 'book', 'Curriculum & Lessons', draft.lessons.length], !authorOnly && ['schedule', 'clock', 'Schedule', (draft.schedules || []).filter((b) => b.endDate >= new Date().toISOString().slice(0, 10)).length], ['syllabus', 'eye', 'Syllabus Preview'], !create && ['reviews', 'star', 'Reviews', rated?.count]].filter(Boolean).map(([t, ic, l, n]) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}><Icon name={ic} small />{l}{n ? <span className="n">{n}</span> : null}</button>
         ))}
       </div>
       {/* who teaches a course is the admin's to set and see: instructors don't get the Instructors section */}
-      {tab === 'details' && SECTIONS.filter((s) => isAdmin || !s.picker).map((s) => (
-        <section key={s.t} className="card sec">
+      {tab === 'details' && SECTIONS.filter((s) => isAdmin || !s.picker).map((s) => (<Fragment key={s.t}>
+        <section className="card sec">
           <h2><span className="cico"><Icon name={s.i} small /></span>{s.t}{s.picker && <span className="note"> ({draft.instructors.length} assigned)</span>}
             {s.upload && <button className="btn sm sec-act" onClick={() => (create ? pickOutline() : setOutlineOpen(true))} disabled={create ? reading : dirty} title={!create && dirty ? 'Save your changes first' : 'Fill topics and objectives from a Word outline'}><Icon name="upload" small />Upload from Word</button>}</h2>
           {s.upload && <p className="note" style={{ margin: 0 }}>Type here and format with the toolbar, paste from Word, or upload a Word outline (.docx, .doc). Bold text, headings and bullet levels are kept.</p>}
@@ -545,7 +611,9 @@ export default function CourseDetail({ back = '/courses', create = false }) {
             ))}</div>
           )}
         </section>
-      ))}
+        {/* right after the instructors: who owns the content (admins) */}
+        {s.picker && isAdmin && <CourseAuthors course={saved} create={create} />}
+      </Fragment>))}
       {tab === 'details' && custom.length > 0 && (
         <section className="card sec">
           <h2><span className="cico"><Icon name="plus" small /></span>Additional fields <span className="note">({custom.length}, added from spreadsheet imports)</span></h2>
@@ -555,7 +623,7 @@ export default function CourseDetail({ back = '/courses', create = false }) {
         </section>
       )}
       {tab === 'lessons' && <Lessons lessons={draft.lessons} onChange={set('lessons')} />}
-      {tab === 'schedule' && <ScheduleEditor course={draft} onChange={set('schedules')} error={errors.schedules} />}
+      {tab === 'schedule' && !authorOnly && <ScheduleEditor course={draft} onChange={set('schedules')} error={errors.schedules} />}
       {tab === 'syllabus' && <Syllabus c={draft} onGoLessons={() => setTab('lessons')} />}
       {tab === 'reviews' && <Reviews id={id} r={rated} />}
 

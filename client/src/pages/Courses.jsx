@@ -39,7 +39,7 @@ export default function Courses() {
   const { courses, ratings, reload } = useData();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const q = params.get('q') || '', vendor = params.get('vendor') || '', product = params.get('product') || '', platform = params.get('platform') || '', status = params.get('status') || '', instructor = params.get('instructor') || '', customOnly = params.get('custom') === '1';
+  const q = params.get('q') || '', vendor = params.get('vendor') || '', product = params.get('product') || '', platform = params.get('platform') || '', status = params.get('status') || '', instructor = params.get('instructor') || '', author = params.get('author') || '', customOnly = params.get('custom') === '1';
   const setParam = (k, v) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); setPage(1); };
   const [sort, setSort] = useState({ key: 'code', dir: 1 });
   const [page, setPage] = useState(1);
@@ -67,10 +67,11 @@ export default function Courses() {
   const flipOpen = (id) => setOpened((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const list = courses.filter((c) => (!s || [c.code, c.ibmCode, c.name, c.product, c.customFor, ...(c.instructors || [])].join(' ').toLowerCase().includes(s))
+    const list = courses.filter((c) => (!s || [c.code, c.ibmCode, c.name, c.product, c.customFor, ...(c.instructors || []), ...(c.authors || []), c.authorText].join(' ').toLowerCase().includes(s))
       && same(c.vendor, vendor) && same(c.platform, platform) && same(c.product, product)
       && (!status || (status.startsWith('grp:') ? groupOf(c.status).id === status.slice(4) : c.status === status))
       && (!instructor || (c.instructors || []).some((n) => n.trim().toLowerCase() === instructor.toLowerCase()))
+      && (!author || (author === '-' ? !(c.authors || []).length && !c.authorText : (c.authors || []).some((n) => n.trim().toLowerCase() === author.toLowerCase())))
       && (!customOnly || c.customFor));
     const sorted = sortRows(list, sort, (c, k) => (k === 'rating' ? ratings.courses[c.id]?.avg : c[k]));
     // client versions sit under their main course; one whose main course isn't listed stays on its own
@@ -78,12 +79,13 @@ export default function Courses() {
     for (const c of sorted) if (c.baseCourse && listed.has(c.baseCourse)) under.set(c.baseCourse, [...(under.get(c.baseCourse) || []), c]);
     return sorted.filter((c) => !(c.baseCourse && listed.has(c.baseCourse)))
       .flatMap((c) => [c, ...(under.has(c.id) && (opened.has(c.id) || s) ? under.get(c.id) : [])]);
-  }, [courses, ratings, q, vendor, platform, product, status, instructor, customOnly, sort, opened]);
+  }, [courses, ratings, q, vendor, platform, product, status, instructor, author, customOnly, sort, opened]);
   // how many client versions each main course has (all of them, not just the ones the filters let through)
   const versionCount = useMemo(() => { const m = new Map(); for (const c of courses) if (c.baseCourse) m.set(c.baseCourse, (m.get(c.baseCourse) || 0) + 1); return m; }, [courses]);
   const isChild = (c) => c.baseCourse && courses.some((x) => x.id === c.baseCourse) && rows.some((x) => x.id === c.baseCourse);
   const active = q || vendor || platform || product || status || instructor || customOnly;
   const teachers = useMemo(() => uniq(courses.flatMap((c) => (c.instructors || []).map((n) => n.trim()))).sort((a, b) => a.localeCompare(b)), [courses]);
+  const authorNames = useMemo(() => uniq(courses.flatMap((c) => c.authors || [])).sort((a, b) => a.localeCompare(b)), [courses]);
 
   // bulk selection: kept across pages and filters until cleared
   const [sel, setSel] = useState(() => new Set());
@@ -98,7 +100,8 @@ export default function Courses() {
   const allOn = rows.length > 0 && rows.every((c) => sel.has(c.id)), someOn = rows.some((c) => sel.has(c.id));
   const toggleAll = () => setSel((s0) => { const n = new Set(s0); rows.forEach((c) => (allOn ? n.delete(c.id) : n.add(c.id))); return n; });
   const picked = courses.filter((c) => sel.has(c.id));
-  const csvOf = (list) => toCSV(list.map((c) => ({ ...c, topics: htmlToText(c.topics), objectives: htmlToText(c.objectives) })), EXPORT_KEYS);
+  const csvRow = (c) => ({ ...c, author: [...(c.authors || []), c.authorText].filter(Boolean).join(', '), topics: htmlToText(c.topics), objectives: htmlToText(c.objectives) });
+  const csvOf = (list) => toCSV(list.map(csvRow), EXPORT_KEYS);
   const mustType = sel.size >= 10; // a big delete needs the word typed, a small one just a confirm
   const deleteSelected = async () => {
     setDeleting(true);
@@ -124,6 +127,8 @@ export default function Courses() {
     { key: 'product', label: 'Product', sortable: true },
     { key: 'status', label: 'Status', sortable: true, render: (c) => <StatusPill status={c.status} /> },
     { key: 'instructors', label: 'Instructor', render: (c) => <InstructorCell list={c.instructors} onOpen={setInst} /> },
+    // who owns the content: instructors from their Author lists (and an imported author that isn't an instructor)
+    { key: 'authors', label: 'Author', render: (c) => (c.authors?.length || c.authorText ? <span className="ca-cell">{(c.authors || []).map((n) => <span key={n} className="ca-tag">{n}</span>)}{c.authorText && <span className="ca-tag ext" title="Not anyone in the instructor list">{c.authorText}</span>}</span> : <Dash />) },
     { key: 'rating', label: 'Rating', sortable: true, render: (c) => { const r = ratings.courses[c.id]; return r ? <span className="crev-cell" title={`${r.count} learner review${r.count === 1 ? '' : 's'}`}><span>★</span>{r.avg.toFixed(1)} <span className="note">({r.count})</span></span> : <Dash />; } },
     { key: 'created', label: 'Create date', sortable: true, tdClass: 'num', tdStyle: { whiteSpace: 'nowrap' } }
   ];
@@ -136,7 +141,7 @@ export default function Courses() {
             onClick={() => setParam('status', status === 'grp:' + g.id ? '' : 'grp:' + g.id)}><span className="d" />{g.short} · {courses.filter((c) => groupOf(c.status).id === g.id).length}</button>
         ))}
         actions={<>
-          <button className="btn" onClick={() => { downloadText(toCSV(rows.map((c) => ({ ...c, topics: htmlToText(c.topics), objectives: htmlToText(c.objectives) })), EXPORT_KEYS), `atlas-courses-${new Date().toISOString().slice(0, 10)}.csv`); toast(`Exported ${rows.length} courses`); }}><Icon name="download" small />Export CSV</button>
+          <button className="btn" onClick={() => { downloadText(toCSV(rows.map(csvRow), EXPORT_KEYS), `atlas-courses-${new Date().toISOString().slice(0, 10)}.csv`); toast(`Exported ${rows.length} courses`); }}><Icon name="download" small />Export CSV</button>
           <button className="btn" onClick={() => setCatalog(true)}><Icon name="book" small />Catalog</button>
           <button className="btn" onClick={() => nav('/courses/import')}><Icon name="upload" small />Bulk import</button>
           <button className="btn" onClick={() => setOutlines(true)}><Icon name="file" small />Import outlines</button>
@@ -144,6 +149,7 @@ export default function Courses() {
         </>} />
       <section className="toolbar" aria-label="Filters">
         <label className="field grow" htmlFor="f-q"><Icon name="search" small /><span className="sr">Search</span><input id="f-q" type="search" placeholder="Search code, name, product or instructor…" value={q} onChange={(e) => setParam('q', e.target.value)} autoComplete="off" /></label>
+        <select className="sel" aria-label="Author" value={author} onChange={(e) => setParam('author', e.target.value)}><option value="">All Authors</option><option value="-">No author yet</option>{authorNames.map((n) => <option key={n}>{n}</option>)}</select>
         <select className="sel" aria-label="Instructor" value={instructor} onChange={(e) => setParam('instructor', e.target.value)}><option value="">All Instructors</option>{teachers.map((n) => <option key={n}>{n}</option>)}</select>
         <select className="sel" aria-label="Vendor" value={vendor} onChange={(e) => setParam('vendor', e.target.value)}><option value="">All Vendors</option>{vendors.map((v) => <option key={v}>{v}</option>)}</select>
         <select className="sel" aria-label="Platform" value={platform} onChange={(e) => setParam('platform', e.target.value)}><option value="">All Platforms</option>{platforms.map((p) => <option key={p}>{p}</option>)}</select>

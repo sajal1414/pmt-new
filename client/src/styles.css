@@ -2522,3 +2522,16 @@ td.imp-off{opacity:.38}
 :root[data-theme="dark"]{--blu:#60A5FA;--blu-ink:#93C5FD;--blu-soft:#172A4A;--blu-line:#2D4C80;--amb:#F59E0B;--amb-ink:#FCD34D;--amb-soft:#3A2A0C;--amb-line:#6B4E16}
 .iv-c-author{--c:var(--blu);--c-ink:var(--blu-ink);--c-soft:var(--blu-soft);--c-line:var(--blu-line)}
 .iv-c-qualified{--c:var(--amb);--c-ink:var(--amb-ink);--c-soft:var(--amb-soft);--c-line:var(--amb-line)}
+/* Course Author: blue, like the Author tab on the instructor page */
+.ca-ico{background:var(--blu-soft)!important;color:var(--blu-ink)!important}
+.ca-card .ichip.ca-chip{background:var(--blu-soft);color:var(--blu-ink);box-shadow:inset 0 0 0 1px var(--blu-line)}
+.ca-card .ichip-name{color:inherit}
+.ca-card .picker{position:relative;z-index:6}
+.ca-pop{background:var(--surface)}
+.ca-pop .iv-opt-a{color:var(--blu-ink)}
+.ca-cell{display:flex;flex-wrap:wrap;gap:4px}
+.ca-tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--blu-soft);color:var(--blu-ink);white-space:nowrap}
+.ca-tag.ext{background:var(--warn-soft);color:var(--warn-ink)}
+.t-author{background:var(--blu-soft);color:var(--blu-ink)}
+.t-cname b .pill{margin-left:6px;vertical-align:1px}
+.pill.t-author{background:var(--blu-soft);color:var(--blu-ink);border-color:var(--blu-line)}

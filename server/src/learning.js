@@ -109,6 +109,22 @@ export function clearSample(d) {
 export const ensureLearning = (d) => { for (const k of ['students', 'enrollments', 'reviews', 'threads', 'resources']) d[k] ||= []; d.views ||= {}; };
 
 /** Courses an instructor teaches (courses list instructors by name). */
+/* Course authors. An instructor authors a course when their "Course Author" list (instructor.canTeach, course codes or
+   names) names it, or when the course's own author text (course.author, e.g. from an import) is their name or email.
+   Worked out on read, so nothing is migrated; it's stored only when someone edits it. */
+const low = (s) => String(s || '').trim().toLowerCase();
+const tokens = (s) => String(s || '').split(/[,;\n]/).map(low).filter(Boolean);
+const namesCourse = (t, c) => t === low(c.code) || t === low(c.name);
+export const listsCourse = (inst, c) => tokens(inst.canTeach).some((t) => namesCourse(t, c));
+export const textIs = (inst, c) => !!low(c.author) && (low(c.author) === low(inst.name) || (!!low(inst.email) && low(c.author) === low(inst.email)));
+export const isAuthor = (inst, c) => listsCourse(inst, c) || textIs(inst, c);
+/** { names: instructors who author course `c`, text: its author text when that's nobody in the instructor list } */
+export function authorsOf(d, c) {
+  const names = d.instructors.filter((i) => isAuthor(i, c)).map((i) => i.name);
+  const text = c.author && !d.instructors.some((i) => textIs(i, c)) ? String(c.author) : '';
+  return { names, text };
+}
+export const authoredCourses = (d, inst) => d.courses.filter((c) => isAuthor(inst, c));
 export const teachingCourses = (d, inst) => d.courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === inst.name.trim().toLowerCase()));
 const pct = (now, before) => (before ? Math.round(((now - before) / before) * 1000) / 10 : now ? 100 : 0);
 

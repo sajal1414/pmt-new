@@ -140,7 +140,7 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
                 {full && <td className="tc-pick"><input type="checkbox" className="pick" checked={sel.has(c.id)} onChange={() => toggle(c.id)} aria-label={'Select ' + c.name} /></td>}
                 {full && <td className="tc-dlc"><button type="button" className="tc-dl" onClick={() => download([c.id])} title="Download PDF" aria-label={'Download PDF of ' + c.name}><Icon name="download" small /></button></td>}
                 <td className="tc-name">{isChild(c) && <span className="cv-branch" aria-hidden="true">↳</span>}<div className="t-cname"><CourseThumb course={c} /><div>
-                  <b>{c.name}{c.customFor && <span className="pill cv-pill" title={'Custom version for ' + c.customFor}>Custom · {c.customFor}</span>}</b>
+                  <b>{c.name}{c.customFor && <span className="pill cv-pill" title={'Custom version for ' + c.customFor}>Custom · {c.customFor}</span>}{c.authoring && <span className="pill t-author" title="You own this course’s content">Author</span>}{c.authoring && c.teaching === false && <span className="pill" title="You author this course but don’t teach it">Not teaching</span>}</b>
                   <span>{c.code} · {c.lessons} lesson{c.lessons === 1 ? '' : 's'}{c.updated ? ` · Updated ${ago(c.updated)}` : ''}</span>
                   {nest && under.has(c.id) && <button type="button" className="cv-toggle" aria-expanded={opened.has(c.id) || !!text.trim()} disabled={!!text.trim()} onClick={() => flipOpen(c.id)}><Icon name="right" small className="chev" />{versions.get(c.id)} client version{versions.get(c.id) === 1 ? '' : 's'}</button>}
                 </div></div></td>
@@ -150,8 +150,8 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
                 <td style={{ textAlign: 'right' }}>{c.rating != null ? <span className="t-rate"><span>★</span>{c.rating.toFixed(1)}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
                 <td><Menu label={'Actions for ' + c.name} items={[
                   { icon: 'edit', label: 'Open course', onClick: () => open(c) },
-                  { icon: 'people', label: 'View students', onClick: () => nav(q('/teach/students', { course: c.id })) },
-                  c.tab !== 'archived' && { icon: 'send', label: 'Assign to learners', onClick: () => setAssignFor(c.id) },
+                  c.teaching !== false && { icon: 'people', label: 'View students', onClick: () => nav(q('/teach/students', { course: c.id })) },
+                  c.teaching !== false && c.tab !== 'archived' && { icon: 'send', label: 'Assign to learners', onClick: () => setAssignFor(c.id) },
                   { icon: 'upload', label: 'Upload outline', onClick: () => setOutlineFor(c.id) },
                   { icon: 'download', label: 'Download PDF', onClick: () => download([c.id]) }
                 ]} /></td>
