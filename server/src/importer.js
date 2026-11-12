@@ -14,7 +14,7 @@ const COURSE_ALIAS = {
 const INSTR_ALIAS = {
   name: 'name', 'full name': 'name', instructor: 'name', 'instructor name': 'name', 'name & contact': 'name', email: 'email', 'e-mail': 'email', 'email address': 'email', phone: 'phone', telephone: 'phone', 'telephone no': 'phone', 'phone number': 'phone', 'phone no': 'phone', mobile: 'phone', 'mobile number': 'phone', 'mobile no': 'phone', 'contact number': 'phone', 'contact no': 'phone', location: 'location',
   country: 'location', 'travel preference': 'travel', travel: 'travel', vendor: 'vendor', platform: 'platforms', platforms: 'platforms', portfolio: 'portfolio', product: 'product', 'primary product': 'product',
-  'skills / products': 'skills', skills: 'skills', 'skills/products': 'skills', 'products & can teach': 'skills', 'courses can teach': 'canTeach', 'can teach': 'canTeach', courses: 'canTeach',
+  'skills / products': 'skills', skills: 'skills', 'skills/products': 'skills', 'products & can teach': 'skills', 'courses can teach': 'canTeach', 'course author': 'canTeach', 'course authors': 'canTeach', 'author of': 'canTeach', 'authorised to teach': 'canTeach', 'authorized to teach': 'canTeach', 'qualified to teach': 'qualified', 'qualified': 'qualified', 'courses qualified to teach': 'qualified', 'can teach': 'canTeach', courses: 'canTeach',
   languages: 'languages', 'delivery languages': 'languages', language: 'languages', feedback: 'rating', 'client feedback': 'rating', rating: 'rating', comments: 'comments', notes: 'comments'
 };
 const LESSON_ALIAS = {
@@ -174,7 +174,7 @@ export function analyse(kind, sheets, db, { replace = false, sheet = null, filen
       if (!why) {
         const n = num(raw.rating);
         o = { ...o, phone: str(raw.phone), location: str(raw.location), travel: travelOpt(str(raw.travel)), vendor: str(raw.vendor), platforms: splitList(str(raw.platforms)), portfolio: str(raw.portfolio), product: str(raw.product),
-          skills: str(raw.skills), canTeach: str(raw.canTeach), languages: str(raw.languages), rating: n === '' ? '' : Math.min(5, Math.max(0, n)), comments: str(raw.comments) };
+          skills: str(raw.skills), canTeach: str(raw.canTeach), qualified: str(raw.qualified), languages: str(raw.languages), rating: n === '' ? '' : Math.min(5, Math.max(0, n)), comments: str(raw.comments) };
       }
     }
     // a skipped row keeps everything it had, so the preview can show the whole row

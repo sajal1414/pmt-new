@@ -9,7 +9,7 @@ import { ensureStudent } from './learn.js';
 import { phoneOk, PHONE_MSG } from './constants.js';
 import { announcementsFor } from './settings.js';
 
-const PROFILE_FIELDS = ['name', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'languages', 'comments'];
+const PROFILE_FIELDS = ['name', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'languages', 'comments'];
 const safeName = (n) => path.basename(String(n)).replace(/[^\w.\-() ]+/g, '_').slice(-120) || 'file';
 
 /** Why a signature can't be stored ('' when it can): it must be a real PNG/JPEG data URL of 300 KB or less; empty removes it. */

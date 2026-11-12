@@ -45,7 +45,7 @@ function InstructorPicker({ value, onChange }) {
     const s = q.trim().toLowerCase();
     return instructors.filter((i) => {
       if (!s) return true;
-      const name = i.name.toLowerCase(), skill = `${i.skills} ${i.canTeach}`.toLowerCase(), prod = `${i.product} ${(i.platforms || []).join(' ')}`.toLowerCase();
+      const name = i.name.toLowerCase(), skill = `${i.skills} ${i.canTeach} ${i.qualified || ''}`.toLowerCase(), prod = `${i.product} ${(i.platforms || []).join(' ')}`.toLowerCase();
       return mode === 'name' ? name.includes(s) : mode === 'skill' ? skill.includes(s) : mode === 'product' ? prod.includes(s) : name.includes(s) || skill.includes(s) || prod.includes(s) || i.email.toLowerCase().includes(s);
     });
   }, [instructors, q, mode]);

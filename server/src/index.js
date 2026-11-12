@@ -709,7 +709,7 @@ function batchAccounts(d, c) {
 // sign-ins for the instructors who don't have one yet
 app.post('/api/instructors/accounts', wrap(() => { const d = load(), accounts = instructorAccounts(d, d.instructors); save(); return { accounts }; }));
 app.post('/api/instructors', wrap((req, res) => {
-  const x = { phone: '', location: '', travel: '', vendor: '', platforms: [], portfolio: '', product: '', skills: '', canTeach: '', languages: '', rating: '', comments: '', ...cleanInstructor(req.body) };
+  const x = { phone: '', location: '', travel: '', vendor: '', platforms: [], portfolio: '', product: '', skills: '', canTeach: '', qualified: '', languages: '', rating: '', comments: '', ...cleanInstructor(req.body) };
   validateInstructor(x);
   const chosen = signInPassword(req.body, x.email);
   x.id = uid('i'); x.created = isoDay(Date.now()); load().instructors.unshift(x); log(`Instructor ${x.name} added`); assignCourses(load(), x.name, req.body.assign);
@@ -796,7 +796,7 @@ function mergeInstructor(d, gone, keep) {
   // details: keep's own win; empty ones come from the other profile, lists are joined
   for (const k of ['email', 'phone', 'location', 'travel', 'vendor', 'portfolio', 'product', 'languages', 'rating', 'signature']) if ((keep[k] === '' || keep[k] == null) && gone[k]) keep[k] = gone[k];
   keep.platforms = [...new Set([...(keep.platforms || []), ...(gone.platforms || [])])];
-  for (const k of ['skills', 'canTeach']) keep[k] = [...new Set(splitList(keep[k]).concat(splitList(gone[k])))].join(', ');
+  for (const k of ['skills', 'canTeach', 'qualified']) keep[k] = [...new Set(splitList(keep[k]).concat(splitList(gone[k])))].join(', ');
   if (gone.comments && !String(keep.comments || '').includes(gone.comments)) keep.comments = [keep.comments, gone.comments].filter(Boolean).join('\n');
   keep.extra = { ...(gone.extra || {}), ...(keep.extra || {}) };
   keep.notSame = (keep.notSame || []).filter((x) => x !== gone.id);
@@ -1208,7 +1208,7 @@ function syncInstructors(d) {
     if (has(name)) continue; // same name twice with different spacing or case
     const mine = d.courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === name.toLowerCase()));
     const x = { id: uid('i'), name, email: '', phone: '', location: '', travel: '', vendor: [...new Set(mine.map((c) => c.vendor).filter(Boolean))].join(', '), platforms: [...new Set(mine.map((c) => c.platform).filter(Boolean))],
-      portfolio: '', product: [...new Set(mine.map((c) => c.product).filter(Boolean))].slice(0, 3).join(', '), skills: '', canTeach: mine.map((c) => c.code).join(', '), languages: '', rating: '',
+      portfolio: '', product: [...new Set(mine.map((c) => c.product).filter(Boolean))].slice(0, 3).join(', '), skills: '', canTeach: '', qualified: mine.map((c) => c.code).join(', '), languages: '', rating: '',
       comments: 'Profile created automatically because a course lists this instructor. Add the email address and details.', created: isoDay(Date.now()) };
     made.push(name);
     d.instructors.push(x);

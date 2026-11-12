@@ -54,7 +54,8 @@ export default function Profile() {
               <Field id="p-lang" label="Languages" value={f.languages} onChange={set('languages')} placeholder="English, Hindi" />
               <Field id="p-plat" label="Platforms" value={f.platforms} onChange={set('platforms')} placeholder="Data, Security, Cloud" />
               <Field id="p-skills" className="full" label="Skills" value={f.skills} onChange={set('skills')} placeholder="DataStage, watsonx.data, QRadar…" />
-              <Field id="p-can" className="full" label="Courses you can teach" value={f.canTeach} onChange={set('canTeach')} placeholder="Course codes or names" />
+              <Field id="p-can" className="full" label="Course Author (courses whose content you own)" value={f.canTeach || ''} onChange={set('canTeach')} placeholder="Course codes or names" />
+              <Field id="p-qual" className="full" label="Qualified to teach" value={f.qualified || ''} onChange={set('qualified')} placeholder="Course codes or names" />
               <Field id="p-bio" className="full" label="About you" type="textarea" value={f.comments} onChange={set('comments')} placeholder="A short bio learners and admins will see" />
               <div className="full"><button className="btn primary" disabled={busy}><Icon name="save" small />{busy ? 'Saving…' : 'Save profile'}</button></div>
             </form>

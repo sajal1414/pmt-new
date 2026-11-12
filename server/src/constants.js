@@ -8,7 +8,7 @@ export const TRAVEL = ['Can Travel', 'Virtual Only', 'In Person Only', 'Both'];
 export const ROLES = ['Admin', 'Instructor', 'Learner'];
 
 export const COURSE_FIELDS = ['code', 'ibmCode', 'pmt', 'name', 'status', 'vendor', 'platform', 'portfolio', 'product', 'instructors', 'delivery', 'duration', 'hours', 'outlineStatus', 'outline', 'description', 'objectives', 'topics', 'skill', 'maxStudents', 'prereqs', 'persona', 'labConfig', 'deliveryNotes', 'labLocation', 'ipOwner', 'author', 'planned', 'release', 'retire', 'ibmRetire', 'dailyRate', 'materialsCost', 'labCost', 'price', 'learningPath', 'badge', 'certification', 'recordSource', 'notes', 'lessons', 'schedules', 'customFor', 'baseCourse', 'extra', 'created'];
-export const INSTRUCTOR_FIELDS = ['name', 'email', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'languages', 'rating', 'comments', 'extra'];
+export const INSTRUCTOR_FIELDS = ['name', 'email', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'languages', 'rating', 'comments', 'extra'];
 
 export const today = () => new Date().toISOString().slice(0, 10);
 export const uniq = (a) => [...new Set(a.filter((x) => x != null && x !== ''))];

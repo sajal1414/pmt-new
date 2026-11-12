@@ -10,7 +10,7 @@ import SignaturePad from '../teach/SignaturePad.jsx';
 import { useCustomFields } from '../lib/customFields.js';
 import InstructorAccounts, { TempPassword } from '../components/InstructorAccounts.jsx';
 
-const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'vendor', 'travel', 'languages', 'rating', 'comments'];
+const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'vendor', 'travel', 'languages', 'rating', 'comments'];
 const FIELDS = [
   ['name', 'Name', 'text', '', true], ['email', 'Email', 'email'], ['phone', 'Telephone', 'tel', '', false, 'e.g. +91 98765 43210'], ['location', 'Location'], ['travel', 'Travel preference', 'select'], ['vendor', 'Vendor'],
   ['platformsText', 'Platform', 'text', '', false, 'e.g. Data & AI, Security'], ['portfolio', 'Portfolio'], ['product', 'Product'],
@@ -53,8 +53,12 @@ const lookAlike = (x, y) => {
   return a === b || (short >= 6 && editDistance(a, b) <= 2) || (short >= 8 && (a.includes(b) || b.includes(a)));
 };
 
-/** "Courses can teach": pick courses from ATLAS. Stored as course codes; anything typed by hand that isn't a course is kept. */
-function CoursePicker({ value, onChange, instructorName, assign, onAssign, initial }) {
+/**
+ * A list of courses on an instructor's profile ("Course Author", "Qualified to teach"): pick courses from ATLAS.
+ * Stored as course codes; anything typed by hand that isn't a course is kept. `onAssign`: also offer to assign the
+ * instructor to newly added courses (only where the list means they teach them).
+ */
+function CoursePicker({ id = 'cpick', label, hint, value, onChange, instructorName, assign, onAssign, initial }) {
   const { courses } = useData();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -78,7 +82,7 @@ function CoursePicker({ value, onChange, instructorName, assign, onAssign, initi
   }, [courses, q]);
   return (
     <div className="fg full">
-      <label htmlFor="cpickQ">Courses can teach</label>
+      <label htmlFor={id + 'Q'}>{label}</label>{hint && <span className="note" style={{ marginTop: -2 }}>{hint}</span>}
       <div className="assigned">
         {items.length ? items.map((t) => { const c = find(t); return (
           <span key={t} className={`ichip${c ? '' : ' ext'}`} title={c ? c.name : 'Not a course in Hazdemy'}>{c ? <><span className="code">{c.code}</span> {c.name}</> : t}
@@ -86,16 +90,16 @@ function CoursePicker({ value, onChange, instructorName, assign, onAssign, initi
         ); }) : <span className="note">No courses yet.</span>}
       </div>
       <div className="picker" ref={box}>
-        <label className="pick-in" htmlFor="cpickQ"><Icon name="search" small /><span className="sr">Add courses</span>
-          <input id="cpickQ" placeholder="Search courses by code, name, platform or product…" autoComplete="off" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} />
+        <label className="pick-in" htmlFor={id + 'Q'}><Icon name="search" small /><span className="sr">Add courses to {label}</span>
+          <input id={id + 'Q'} placeholder="Search courses by code, name, platform or product…" autoComplete="off" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} />
           {q && <button type="button" className="linkbtn" onClick={() => setQ('')}>Clear</button>}
         </label>
         {open && (
           <div className="pick-pop">
             <div className="pick-list">
               {matches.length ? matches.map((c) => (
-                <label key={c.id} htmlFor={'cp-' + c.id}>
-                  <input type="checkbox" id={'cp-' + c.id} checked={has(c)} onChange={() => toggle(c)} />
+                <label key={c.id} htmlFor={id + '-' + c.id}>
+                  <input type="checkbox" id={id + '-' + c.id} checked={has(c)} onChange={() => toggle(c)} />
                   <span className="who2"><b><span className="code">{c.code}</span> {c.name}</b><span>{[c.platform, c.product, c.status].filter(Boolean).join(' • ')}{(c.instructors || []).length ? ` • Taught by ${c.instructors.join(', ')}` : ' • No instructor yet'}</span></span>
                 </label>
               )) : <p className="note" style={{ padding: 14, margin: 0 }}>No courses match “{q}”.</p>}
@@ -104,7 +108,7 @@ function CoursePicker({ value, onChange, instructorName, assign, onAssign, initi
           </div>
         )}
       </div>
-      {fresh.length > 0 && (
+      {onAssign && fresh.length > 0 && (
         <label className="cp-assign"><input type="checkbox" checked={assign} onChange={(e) => onAssign(e.target.checked)} />
           <span>Also assign {instructorName?.trim() || 'this instructor'} as instructor on the {fresh.length} newly added course{fresh.length === 1 ? '' : 's'} ({fresh.map((c) => c.code).join(', ')})</span></label>
       )}
@@ -128,7 +132,7 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
   const [sig, setSig] = useState(null); // the instructor's certificate signature (edit only), loaded on open
   const custom = useCustomFields().instructors;
   const { courses } = useData();
-  const fill = (r) => { const v = r ? { ...r, password: '', platformsText: (r.platforms || []).join(', ') } : { vendor: 'IBM', ...preset }; setF(v); setBase(v); setErr({}); setAssign(true); };
+  const fill = (r) => { const v = r ? { ...r, canTeach: r.canTeach || '', qualified: r.qualified || '', password: '', platformsText: (r.platforms || []).join(', ') } : { vendor: 'IBM', ...preset }; setF(v); setBase(v); setErr({}); setAssign(true); };
   useEffect(() => { setSig(null); if (open && record) api.get(`/api/instructors/${record.id}/signature`).then((r) => setSig(r.signature || '')).catch(() => setSig('')); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // refill when a different instructor is opened (not on every data reload, which would wipe unsaved typing)
   useEffect(() => { if (open) fill(record); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -137,10 +141,11 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
   const [accounts, setAccounts] = useState(null);
   const submit = async (e) => {
     e.preventDefault(); setBusy(true);
-    // courses ticked in this edit; the server adds the instructor to any that don't list them yet
+    // courses newly ticked under "Qualified to teach": the server adds the instructor to any that don't list them yet
+    // (being a Course Author means owning the content, not teaching it, so that list doesn't assign anyone)
     const find = (t) => courses.find((c) => c.code.toLowerCase() === t.toLowerCase() || c.name.toLowerCase() === t.toLowerCase());
-    const before = new Set(splitList(record?.canTeach).map((t) => find(t)?.id).filter(Boolean));
-    const fresh = splitList(f.canTeach).map(find).filter((c) => c && !before.has(c.id));
+    const before = new Set(splitList(record?.qualified).map((t) => find(t)?.id).filter(Boolean));
+    const fresh = splitList(f.qualified).map(find).filter((c) => c && !before.has(c.id));
     const body = { ...f, platforms: splitList(f.platformsText), assign: assign ? fresh.map((c) => c.id) : [] };
     try {
       const saved = record ? await api.put('/api/instructors/' + record.id, body) : await api.post('/api/instructors', body);
@@ -155,7 +160,11 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
         {FIELDS.map(([k, label, type = 'text', cls = '', req = false, ph]) => (
           <Field key={k} id={'in-' + k} label={label} type={type} options={type === 'select' ? TRAVEL : undefined} className={cls} required={req} placeholder={ph} step={k === 'rating' ? '0.1' : undefined}
             value={f[k]} error={err[k]} onChange={(v) => setF((s) => ({ ...s, [k]: v }))} />
-        )).flatMap((el) => (el.key === 'skills' ? [el, <CoursePicker key="canTeach" value={f.canTeach} initial={record?.canTeach} instructorName={f.name} assign={assign} onAssign={setAssign} onChange={(v) => setF((s) => ({ ...s, canTeach: v }))} />] : [el]))}
+        )).flatMap((el) => (el.key === 'skills' ? [el,
+          <CoursePicker key="canTeach" id="cpAuthor" label="Course Author" hint="Courses whose content they own." value={f.canTeach} initial={record?.canTeach} instructorName={f.name}
+            onChange={(v) => setF((s) => ({ ...s, canTeach: v }))} />,
+          <CoursePicker key="qualified" id="cpQualified" label="Qualified to teach" hint="Courses they can teach, without necessarily owning the content." value={f.qualified} initial={record?.qualified} instructorName={f.name}
+            assign={assign} onAssign={setAssign} onChange={(v) => setF((s) => ({ ...s, qualified: v }))} />] : [el]))}
         <TempPassword id="in-password" label={record ? 'Sign-in: new temporary password' : 'Sign-in: temporary password'} value={f.password} onChange={(v) => setF((s) => ({ ...s, password: v }))} error={err.password}
           placeholder={record ? 'Leave blank to keep their current password' : 'Leave blank to make one automatically'} />
         {!record && f.name && (() => { const like = instructors.find((o) => lookAlike({ name: f.name, email: f.email }, o)); return like && <p className="note full dup-q"><Icon name="alert" small />This looks like <b>{like.name}</b>{like.email ? ` (${like.email})` : ''}, who’s already in Hazdemy. Make sure it isn’t the same person.</p>; })()}
@@ -200,7 +209,7 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
   const missing = !!given && !given.id;
   const taught = given ? courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === given.name.trim().toLowerCase())) : [];
   const x = missing ? { ...given, platforms: uniq(taught.map((c) => c.platform).filter(Boolean)), product: uniq(taught.map((c) => c.product).filter(Boolean)).join(', '), skills: uniq(taught.map((c) => c.product).filter(Boolean)).join(', '),
-    canTeach: taught.map((c) => c.code).join(', '), vendor: uniq(taught.map((c) => c.vendor).filter(Boolean)).join(', '), rating: '' } : given;
+    canTeach: '', qualified: taught.map((c) => c.code).join(', '), vendor: uniq(taught.map((c) => c.vendor).filter(Boolean)).join(', '), rating: '' } : given;
   const rated = missing ? taught.map((c) => ratings.courses[c.id]).filter(Boolean) : [];
   const lr = !x ? null : missing ? (rated.length ? { avg: rated.reduce((a, r) => a + r.avg * r.count, 0) / rated.reduce((a, r) => a + r.count, 0), count: rated.reduce((a, r) => a + r.count, 0) } : null) : ratings.instructors[x.id];
   useEffect(() => { if (given && focusRated) setTimeout(() => document.getElementById('who-rated')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); }, [given, focusRated]);
@@ -223,8 +232,10 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
         {x.portfolio && <div className="note"><b style={{ color: 'var(--ink-2)' }}>Portfolio:</b> {x.portfolio}</div>}
         <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Skills &amp; products breakdown</div>
           <div className="chips">{skills.length ? skills.map((s) => <span key={s} className="chip">{s}</span>) : <span className="note">None listed</span>}</div></div>
-        <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Specific courses authorized to teach</div>
+        <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Course Author</div>
           <div className="tile" style={{ fontSize: 13 }}>{x.canTeach || <span className="note">Not specified</span>}</div></div>
+        <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Qualified to teach</div>
+          <div className="tile" style={{ fontSize: 13 }}>{x.qualified || <span className="note">Not specified</span>}</div></div>
       </div>
       <div className="tiles">
         <Tile icon="phone" label="Telephone">{x.phone ? <a href={'tel:' + x.phone.replace(/[^\d+]/g, '')}>{x.phone}</a> : <span className="note">Not added. Click {missing ? 'Add to instructor list' : 'Edit'} to add one.</span>}</Tile>
@@ -352,7 +363,7 @@ export default function Instructors() {
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return sortRows(instructors.filter((x) => (!s || [x.name, x.email, x.phone, (x.platforms || []).join(' '), x.product, x.skills, x.canTeach, x.location].join(' ').toLowerCase().includes(s))
+    return sortRows(instructors.filter((x) => (!s || [x.name, x.email, x.phone, (x.platforms || []).join(' '), x.product, x.skills, x.canTeach, x.qualified, x.location].join(' ').toLowerCase().includes(s))
       && (!platform || (x.platforms || []).includes(platform)) && (!vendor || x.vendor === vendor)), sort, (x, k) => (k === 'learner' ? ratings.instructors[x.id]?.avg : x[k]));
   }, [instructors, ratings, q, platform, vendor, sort]);
   const active = q || platform || vendor;
