@@ -249,7 +249,7 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
         <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Course Author</div>
           <div className="tile" style={{ fontSize: 13 }}>{x.canTeach || <span className="note">Not specified</span>}</div></div>
         <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Qualified to teach</div>
-          <div className="tile" style={{ fontSize: 13 }}>{x.qualified || <span className="note">Not specified</span>}</div></div>
+          <div className="tile" style={{ fontSize: 13 }}>{(() => { const all = [...new Set([...splitList(x.qualified || ''), ...taught.map((c) => c.code)].filter(Boolean))]; return all.length ? all.join(', ') : <span className="note">Not specified</span>; })()}</div></div>
       </div>
       <div className="tiles">
         <Tile icon="phone" label="Telephone">{x.phone ? <a href={'tel:' + x.phone.replace(/[^\d+]/g, '')}>{x.phone}</a> : <span className="note">Not added. Click {missing ? 'Add to instructor list' : 'Edit'} to add one.</span>}</Tile>
@@ -344,7 +344,7 @@ const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || 
 const LISTS = {
   teaching: { tab: 'Teaching', icon: 'book', blurb: 'Courses they’re assigned to in Hazdemy: they appear in their portal, schedule and certificates.', empty: 'Not teaching any course yet.', add: 'Assign to a course…' },
   author: { tab: 'Author', icon: 'edit', blurb: 'Courses whose content they own.', empty: 'No courses listed yet.', add: 'Add a course they own…' },
-  qualified: { tab: 'Qualified', icon: 'badge', blurb: 'Courses they can teach, without necessarily owning the content.', empty: 'No courses listed yet.', add: 'Add a course they can teach…' }
+  qualified: { tab: 'Qualified', icon: 'badge', blurb: 'Courses they can teach, without necessarily owning the content. Every course they teach counts automatically.', empty: 'No courses listed yet.', add: 'Add a course they can teach…' }
 };
 
 /**
@@ -380,7 +380,10 @@ function CoursesPanel({ x }) {
   const rows = {
     teaching: teaching.map((c) => ({ key: c.id, c })),
     author: [...authoring.map((c) => ({ key: c.id, c })), ...codes.author.filter((t) => !byCode(t)).map((t) => ({ key: t, c: null, text: t }))],
-    qualified: codes.qualified.map((t) => ({ key: t, c: byCode(t) || null, text: t }))
+    // qualified: the courses added by hand, plus every course they teach (teaching one means they're qualified for it)
+    qualified: [...codes.qualified.map((t) => ({ key: t, c: byCode(t) || null, text: t })),
+      ...teaching.filter((c) => !codes.qualified.some((t) => byCode(t)?.id === c.id)).map((c) => ({ key: 'teach-' + c.id, c, viaTeaching: true }))]
+      .sort((a, b) => String(a.c?.code || a.text).localeCompare(String(b.c?.code || b.text)))
   };
   // a course's authors are set on the course, which keeps every instructor's Author list in step
   const setAuthor = async (c, on) => {
@@ -412,7 +415,7 @@ function CoursesPanel({ x }) {
     setRemove(null);
   });
   const s = q.trim().toLowerCase();
-  const already = (c) => (tab === 'teaching' ? isTeaching(c) : inList(tab, c));
+  const already = (c) => (tab === 'teaching' ? isTeaching(c) : tab === 'qualified' ? inList('qualified', c) || isTeaching(c) : inList(tab, c));
   const addable = courses.filter((c) => !already(c) && (!s || [c.code, c.name, c.platform, c.product, c.customFor].join(' ').toLowerCase().includes(s))).slice(0, 30);
   const L = LISTS[tab];
   const badges = (c) => c && [
@@ -451,7 +454,8 @@ function CoursesPanel({ x }) {
             <span className="iv-crow-end">
               {badges(r.c)}
               {tab === 'qualified' && r.c && !isTeaching(r.c) && <button type="button" className="btn sm iv-assign" disabled={!!busy} onClick={() => run(r.key, () => setTeaching(r.c, true))}>{busy === r.key ? 'Assigning…' : 'Assign'}</button>}
-              <button type="button" className="iv-rm" disabled={!!busy} onClick={() => setRemove(r)} aria-label={`Remove ${r.c?.code || r.text}`} title="Remove"><Icon name="x" small /></button>
+              {r.viaTeaching ? <span className="iv-rm iv-lock" title="Qualified because they teach this course. Remove it from Teaching to take it off."><Icon name="lock" small /></span>
+                : <button type="button" className="iv-rm" disabled={!!busy} onClick={() => setRemove(r)} aria-label={`Remove ${r.c?.code || r.text}`} title="Remove"><Icon name="x" small /></button>}
             </span>
           </div>
         )) : <div className="iv-empty"><Icon name={L.icon} /><span>{L.empty}</span></div>}

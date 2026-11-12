@@ -38,6 +38,7 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
   const [text, setText] = useState('');
   const [platform, setPlatform] = useState('');
   const [content, setContent] = useState(''); // '' | 'complete' | 'incomplete' | part key
+  const [role, setRole] = useState(''); // '' | 'teaching' | 'authoring' | 'qualified': the instructor's own relation to a course
   const [sort, setSort] = useState({ key: 'updated', dir: -1 });
   const [outlineFor, setOutlineFor] = useState(null);
   const [assignFor, setAssignFor] = useState(null);
@@ -49,14 +50,16 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
   const counts = useMemo(() => Object.fromEntries(TABS.map(([k]) => [k, k === 'all' ? courses.length : courses.filter((c) => c.tab === k).length])), [courses]);
   const platforms = useMemo(() => [...new Set(courses.map((c) => c.platform).filter(Boolean))].sort(), [courses]);
   const done = courses.filter((c) => pctOf(c) === 100).length;
+  // how many courses they teach, author, or are qualified to teach (teaching counts as qualified); only in My Courses (the server sends these)
+  const roles = courses.some((c) => 'authoring' in c) ? { teaching: courses.filter((c) => c.teaching).length, authoring: courses.filter((c) => c.authoring).length, qualified: courses.filter((c) => c.qualified).length } : null;
   const rows = useMemo(() => {
     const s = text.trim().toLowerCase();
     const list = courses.filter((c) => (tab === 'all' || c.tab === tab) && (!s || `${c.name} ${c.code} ${c.product} ${c.platform}`.toLowerCase().includes(s))
-      && (!platform || c.platform === platform)
+      && (!platform || c.platform === platform) && (!role || c[role])
       && (!content || (content === 'complete' ? pctOf(c) === 100 : content === 'incomplete' ? pctOf(c) < 100 : !c.content?.[content])));
     const val = (c) => (sort.key === 'rating' ? c.rating ?? -1 : sort.key === 'name' ? c.name.toLowerCase() : sort.key === 'complete' ? pctOf(c) : c[sort.key] ?? '');
     return list.sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * sort.dir);
-  }, [courses, tab, text, platform, content, sort]);
+  }, [courses, tab, text, platform, content, role, sort]);
   // client versions sit under their main course; one whose main course isn't listed stays on its own
   const [opened, setOpened] = useState(() => new Set());
   const flipOpen = (id) => setOpened((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -72,7 +75,7 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
   useEffect(() => { setPage(1); }, [tab, text, platform, content]);
   const shown = (limit ? tops.slice(0, limit) : full ? tops.slice((cur - 1) * PER, cur * PER) : tops)
     .flatMap((c) => [c, ...(under.has(c.id) && (opened.has(c.id) || text.trim()) ? under.get(c.id) : [])]);
-  const filtered = text || platform || content || tab !== 'all';
+  const filtered = text || platform || content || role || tab !== 'all';
   const th = (key, label, align) => (
     <th style={{ textAlign: align }} aria-sort={sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}>
       <button onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : key === 'name' || key === 'complete' ? 1 : -1 }))}>{label}<Icon name={sort.key === key ? (sort.dir > 0 ? 'up' : 'down') : 'sort'} small /></button>
@@ -103,9 +106,13 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
             <option value="">All content</option><option value="complete">Complete</option><option value="incomplete">Not complete</option>
             <optgroup label="Missing…">{PARTS.map(([k, l]) => <option key={k} value={k}>Missing {l.toLowerCase()}</option>)}</optgroup>
           </select>
-          {filtered && <button className="btn sm" onClick={() => { setText(''); setPlatform(''); setContent(''); setTab('all'); }}><Icon name="x" small />Clear filters</button>}
+          {filtered && <button className="btn sm" onClick={() => { setText(''); setPlatform(''); setContent(''); setRole(''); setTab('all'); }}><Icon name="x" small />Clear filters</button>}
         </div>
         <div className="tc-summary">
+          {roles && [['teaching', 'Teaching', 'book', 'tc-teach'], ['authoring', 'Course Author', 'edit', 'tc-auth'], ['qualified', 'Qualified to teach', 'badge', 'tc-qual']].map(([k, l, ic, cls]) => (
+            <button key={k} type="button" className={`tc-chip ${cls}${role === k ? ' on' : ''}`} onClick={() => setRole(role === k ? '' : k)} title={k === 'authoring' ? 'Courses whose content you own: you can edit them' : k === 'qualified' ? 'Courses you can teach (every course you teach counts). Open one to make a custom version.' : 'Courses you’re assigned to teach'}><Icon name={ic} small />{l} <b className="num">{roles[k]}</b></button>
+          ))}
+          {roles && <span className="tc-sep" aria-hidden="true" />}
           <button type="button" className={`tc-chip ok${content === 'complete' ? ' on' : ''}`} onClick={() => setContent(content === 'complete' ? '' : 'complete')}><Icon name="check" small />Complete <b className="num">{done}</b></button>
           <button type="button" className={`tc-chip warn${content === 'incomplete' ? ' on' : ''}`} onClick={() => setContent(content === 'incomplete' ? '' : 'incomplete')}><Icon name="alert" small />Not complete <b className="num">{courses.length - done}</b></button>
           <span className="note">{rows.length === courses.length ? `${courses.length} courses` : `${rows.length} of ${courses.length} courses match`}</span>
@@ -140,7 +147,7 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
                 {full && <td className="tc-pick"><input type="checkbox" className="pick" checked={sel.has(c.id)} onChange={() => toggle(c.id)} aria-label={'Select ' + c.name} /></td>}
                 {full && <td className="tc-dlc"><button type="button" className="tc-dl" onClick={() => download([c.id])} title="Download PDF" aria-label={'Download PDF of ' + c.name}><Icon name="download" small /></button></td>}
                 <td className="tc-name">{isChild(c) && <span className="cv-branch" aria-hidden="true">↳</span>}<div className="t-cname"><CourseThumb course={c} /><div>
-                  <b>{c.name}{c.customFor && <span className="pill cv-pill" title={'Custom version for ' + c.customFor}>Custom · {c.customFor}</span>}{c.authoring && <span className="pill t-author" title="You own this course’s content">Author</span>}{c.authoring && c.teaching === false && <span className="pill" title="You author this course but don’t teach it">Not teaching</span>}</b>
+                  <b>{c.name}{c.customFor && <span className="pill cv-pill" title={'Custom version for ' + c.customFor}>Custom · {c.customFor}</span>}{c.authoring && <span className="pill t-author" title="You own this course’s content: you can edit it">Author</span>}{c.teaching && 'authoring' in c && <span className="pill t-teach" title="You’re assigned to teach this course">Teaching</span>}{c.qualified && !c.teaching && <span className="pill t-qual" title="You’re qualified to teach this course">Qualified</span>}{c.canEdit === false && <span className="pill t-view" title="Only its Course Authors edit it. Open it to make a custom version."><Icon name="eye" small />View only</span>}</b>
                   <span>{c.code} · {c.lessons} lesson{c.lessons === 1 ? '' : 's'}{c.updated ? ` · Updated ${ago(c.updated)}` : ''}</span>
                   {nest && under.has(c.id) && <button type="button" className="cv-toggle" aria-expanded={opened.has(c.id) || !!text.trim()} disabled={!!text.trim()} onClick={() => flipOpen(c.id)}><Icon name="right" small className="chev" />{versions.get(c.id)} client version{versions.get(c.id) === 1 ? '' : 's'}</button>}
                 </div></div></td>
@@ -149,10 +156,11 @@ export default function CourseTable({ courses, limit, onChanged, full, nest = tr
                 <td className="num" style={{ textAlign: 'right' }}>{num(c.students)}</td>
                 <td style={{ textAlign: 'right' }}>{c.rating != null ? <span className="t-rate"><span>★</span>{c.rating.toFixed(1)}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
                 <td><Menu label={'Actions for ' + c.name} items={[
-                  { icon: 'edit', label: 'Open course', onClick: () => open(c) },
+                  { icon: c.canEdit === false ? 'eye' : 'edit', label: c.canEdit === false ? 'View course' : 'Open course', onClick: () => open(c) },
+                  c.canEdit === false && { icon: 'copy', label: 'Create custom version', onClick: () => nav(q('/teach/courses/' + c.id), { state: { custom: true } }) },
                   c.teaching !== false && { icon: 'people', label: 'View students', onClick: () => nav(q('/teach/students', { course: c.id })) },
                   c.teaching !== false && c.tab !== 'archived' && { icon: 'send', label: 'Assign to learners', onClick: () => setAssignFor(c.id) },
-                  { icon: 'upload', label: 'Upload outline', onClick: () => setOutlineFor(c.id) },
+                  c.canEdit !== false && { icon: 'upload', label: 'Upload outline', onClick: () => setOutlineFor(c.id) },
                   { icon: 'download', label: 'Download PDF', onClick: () => download([c.id]) }
                 ]} /></td>
               </tr>

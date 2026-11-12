@@ -3,7 +3,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import multer from 'multer';
-import { overview, scope, studentsOf, analytics, certificatesOf, reviewOut, teachingCourses, authoredCourses, isAuthor, isoDay, certSigners } from './learning.js';
+import { overview, scope, studentsOf, analytics, certificatesOf, reviewOut, teachingCourses, authoredCourses, qualifiedCourses, isAuthor, listsQualified, isoDay, certSigners } from './learning.js';
 import { certificatePdf } from './pdf.js';
 import { ensureStudent } from './learn.js';
 import { phoneOk, PHONE_MSG } from './constants.js';
@@ -63,11 +63,12 @@ export function mountTeach(app, { wrap, HttpError, load, save, uid, log, dataDir
     return { instructor: { id: inst.id, name: inst.name, email: inst.email, location: inst.location }, unread: d.threads.filter((t) => t.instructorId === inst.id && t.unread).length, notifications: notifications(d, inst), sample: !!d.sampleLearning };
   }));
   app.get('/api/teach/overview', wrap((req) => { const { d, inst } = teacher(req); return overview(d, inst, req.query); }));
-  // My Courses: the courses they teach, then the ones they only author (content to look after; no learners or batches of theirs)
+  // My Courses: the courses they teach, author or are qualified to teach. Only authors edit the content; the others can
+  // open it and make a custom version (which they then own). Learners, batches and stats only come with teaching.
   app.get('/api/teach/courses', wrap((req) => {
     const { d, inst } = teacher(req); const S = scope(d, inst), taught = new Set(S.courses.map((c) => c.id));
-    const list = [...S.courses, ...authoredCourses(d, inst).filter((c) => !taught.has(c.id))];
-    return list.map((c) => ({ ...S.courseStats(c), teaching: taught.has(c.id), authoring: isAuthor(inst, c) }));
+    const seen = new Set(), list = [...S.courses, ...authoredCourses(d, inst), ...qualifiedCourses(d, inst)].filter((c) => !seen.has(c.id) && seen.add(c.id));
+    return list.map((c) => { const author = isAuthor(inst, c), teaching = taught.has(c.id); return { ...S.courseStats(c), teaching, authoring: author, qualified: teaching || listsQualified(inst, c), canEdit: author }; });
   }));
   app.get('/api/teach/students', wrap((req) => { const { d, inst } = teacher(req); return studentsOf(d, inst); }));
   app.get('/api/teach/analytics', wrap((req) => { const { d, inst } = teacher(req); return analytics(d, inst, req.query); }));

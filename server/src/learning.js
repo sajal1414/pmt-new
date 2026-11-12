@@ -116,7 +116,9 @@ const low = (s) => String(s || '').trim().toLowerCase();
 const tokens = (s) => String(s || '').split(/[,;\n]/).map(low).filter(Boolean);
 const namesCourse = (t, c) => t === low(c.code) || t === low(c.name);
 export const listsCourse = (inst, c) => tokens(inst.canTeach).some((t) => namesCourse(t, c));
-export const textIs = (inst, c) => !!low(c.author) && (low(c.author) === low(inst.name) || (!!low(inst.email) && low(c.author) === low(inst.email)));
+// a person's name for matching: lower case, no dots or dashes, no middle initials ("Megan A. Irvine" = "Megan Irvine")
+const nameKey = (s) => low(s).replace(/[^a-z0-9@ ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1).join(' ');
+export const textIs = (inst, c) => !!low(c.author) && (nameKey(c.author) === nameKey(inst.name) || (!!low(inst.email) && low(c.author) === low(inst.email)));
 export const isAuthor = (inst, c) => listsCourse(inst, c) || textIs(inst, c);
 /** { names: instructors who author course `c`, text: its author text when that's nobody in the instructor list } */
 export function authorsOf(d, c) {
@@ -125,6 +127,9 @@ export function authorsOf(d, c) {
   return { names, text };
 }
 export const authoredCourses = (d, inst) => d.courses.filter((c) => isAuthor(inst, c));
+/** On the instructor's "Qualified to teach" list (added by hand; teaching a course also counts, see the callers). */
+export const listsQualified = (inst, c) => tokens(inst.qualified).some((t) => namesCourse(t, c));
+export const qualifiedCourses = (d, inst) => d.courses.filter((c) => listsQualified(inst, c));
 export const teachingCourses = (d, inst) => d.courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === inst.name.trim().toLowerCase()));
 const pct = (now, before) => (before ? Math.round(((now - before) / before) * 1000) / 10 : now ? 100 : 0);
 

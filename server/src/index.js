@@ -14,7 +14,7 @@ import { catalogPdf, catalogXlsx, CATALOG_FIELDS, CATALOG_DEFAULTS } from './cat
 import JSZip from 'jszip';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { generateSample, clearSample, ensureLearning, teachingCourses, isoDay, isAuthor, authorsOf, listsCourse, textIs } from './learning.js';
+import { generateSample, clearSample, ensureLearning, teachingCourses, isoDay, isAuthor, authorsOf, listsCourse, textIs, listsQualified } from './learning.js';
 import { mountTeach, signatureProblem } from './teach.js';
 import { mountLearn, ensureStudent, handleStripeWebhook } from './learn.js';
 import { mountAdmin } from './admin.js';
@@ -260,11 +260,20 @@ function cleanCourse(body) {
 /** The instructor profile of a signed-in instructor (null for admins). */
 const instructorOf = (user) => (user.role === 'Admin' ? null : load().instructors.find((i) => i.id === user.instructorId) || null);
 const teaches = (inst, c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === inst.name.trim().toLowerCase());
+/* What an instructor may do with a course (admins may do everything):
+   - its Course Authors own the content: they edit it (details, lessons, outline);
+   - the instructors who teach it manage their own batches on it, but don't edit the content;
+   - anyone qualified to teach it (teaching it counts) may open it and make a custom version, which they then own. */
+const qualifiedFor = (inst, c) => teaches(inst, c) || listsQualified(inst, c);
 function assertOwnCourse(user, c) {
   if (user.role === 'Admin') return;
   const inst = instructorOf(user);
-  // the instructors of a course and its authors (who own the content) may change it
-  if (!inst || !(teaches(inst, c) || isAuthor(inst, c))) throw new HttpError(403, 'You can only change courses you teach or author.');
+  if (!inst || !(teaches(inst, c) || isAuthor(inst, c))) throw new HttpError(403, 'Only this course’s authors can change it. Create a custom version to adapt it.');
+}
+function assertCanCustomize(user, c) {
+  if (user.role === 'Admin') return;
+  const inst = instructorOf(user);
+  if (!inst || !(isAuthor(inst, c) || qualifiedFor(inst, c))) throw new HttpError(403, 'You can only make custom versions of courses you author or are qualified to teach.');
 }
 /* Instructors see the courses they teach and the courses they author. On those they only see themselves (as instructor
    and/or author) and only their own batches: who else teaches or authors a course, and the batches another instructor
@@ -275,7 +284,7 @@ const othersBatch = (b, inst) => !!b.instructor && !sameName(b.instructor, inst.
 const maskCourse = (c, inst) => {
   const teaching = teaches(inst, c), author = isAuthor(inst, c);
   return { ...c, instructors: teaching ? [inst.name] : [], schedules: teaching ? (c.schedules || []).filter((b) => !othersBatch(b, inst)) : [],
-    author: author ? inst.name : '', authors: author ? [inst.name] : [], authorText: '', teaching, authoring: author };
+    author: author ? inst.name : '', authors: author ? [inst.name] : [], authorText: '', teaching, authoring: author, qualified: qualifiedFor(inst, c), canEdit: author };
 };
 /** Admins: the course with its authors worked out (`authors` names, `authorText` when that's no instructor). */
 const withAuthors = (c, d = load()) => { const a = authorsOf(d, c); return { ...c, authors: a.names, authorText: a.text }; };
@@ -284,7 +293,7 @@ function courseFor(user, c) {
   if (!c) return null;
   if (user.role === 'Admin') return withAuthors(c);
   const inst = instructorOf(user);
-  return inst && (teaches(inst, c) || isAuthor(inst, c)) ? maskCourse(c, inst) : null;
+  return inst && (isAuthor(inst, c) || qualifiedFor(inst, c)) ? maskCourse(c, inst) : null;
 }
 const visibleCourses = (user, list = load().courses) => list.map((c) => courseFor(user, c)).filter(Boolean);
 function readableCourse(user, id) {
@@ -544,32 +553,46 @@ app.post('/api/courses', wrap((req, res) => {
   const doc = req.body.outlineToken && pendingDocs.get(String(req.body.outlineToken));
   if (doc) { attachOutline(c, doc); pendingDocs.delete(String(req.body.outlineToken)); }
   load().courses.unshift(c); log(`Course ${c.name} created`); syncInstructors(load());
+  if (inst) makeAuthor(inst, c); // a course an instructor creates is theirs: they're its author
   const accounts = batchAccounts(load(), c); save();
   res.status(201); return { ...courseFor(req.user, c), accounts };
 }));
+/** Put course `c` on instructor `inst`'s Course Author list (which is what makes them its author). */
+const makeAuthor = (inst, c) => { if (!isAuthor(inst, c)) inst.canTeach = [...splitList(inst.canTeach || ''), c.code].filter(Boolean).join(', '); };
 // a client's own version of a course: a copy of its content, tagged with the client and linked back to the original
 app.post('/api/courses/:id/customize', wrap((req, res) => {
   const d = load(), src = d.courses.find((x) => x.id === req.params.id);
   if (!src) throw new HttpError(404, 'Course not found.');
-  assertOwnCourse(req.user, src);
+  assertCanCustomize(req.user, src);
+  const inst = instructorOf(req.user);
   const customFor = String(req.body.customFor || '').trim().slice(0, 120);
   if (!customFor) throw new HttpError(422, 'Fix the highlighted fields.', { customFor: 'Enter the client this version is for.' });
   const original = src.baseCourse && d.courses.find((x) => x.id === src.baseCourse) || src; // customising a custom version still links to the original
   const c = { ...structuredClone(src), ...cleanCourse({ name: req.body.name || `${original.name} for ${customFor}`, code: req.body.code || customCode(d, original, customFor) }),
     customFor, baseCourse: original.id, status: STATUSES.includes(req.body.status) ? req.body.status : src.status, created: new Date().toISOString().slice(0, 10) };
   c.lessons = (c.lessons || []).map((l) => ({ ...l, id: uid('l') }));
-  c.schedules = req.body.schedules ? (c.schedules || []).map((b) => ({ ...b, id: uid('sch') })) : [];
+  c.schedules = req.body.schedules && !inst ? (c.schedules || []).map((b) => ({ ...b, id: uid('sch') })) : [];
+  // an instructor's custom version is theirs: they teach it and own its content (nobody else's names or batches come along)
+  if (inst) { c.instructors = [inst.name]; c.author = ''; if (!req.body.status) c.status = 'Draft'; }
   validateCourse(c);
   c.id = uid('c'); c.updated = new Date().toISOString();
-  d.courses.unshift(c); log(`Custom version ${c.name} created for ${customFor}`); syncInstructors(d); save();
+  d.courses.unshift(c); log(`Custom version ${c.name} created for ${customFor}`); syncInstructors(d);
+  if (inst) makeAuthor(inst, c);
+  save();
   res.status(201); return courseFor(req.user, c);
 }));
 app.put('/api/courses/:id', wrap((req) => {
   const d = load(), i = d.courses.findIndex((x) => x.id === req.params.id);
   if (i < 0) throw new HttpError(404, 'Course not found.');
   assertOwnCourse(req.user, d.courses[i]);
-  const next = { ...d.courses[i], ...cleanCourse(req.body), id: d.courses[i].id, updated: new Date().toISOString() };
   const inst = instructorOf(req.user);
+  let changes = cleanCourse(req.body);
+  // only a Course Author changes the content; an instructor who teaches it (but doesn't author it) only manages batches
+  if (inst && !isAuthor(inst, d.courses[i])) {
+    if (!('schedules' in changes)) throw new HttpError(403, 'Only this course’s authors can change its content. Create a custom version to adapt it.');
+    changes = { schedules: changes.schedules };
+  }
+  const next = { ...d.courses[i], ...changes, id: d.courses[i].id, updated: new Date().toISOString() };
   if (inst) keepHidden(d.courses[i], next, inst); // they saw only themselves: co-instructors and others' batch instructors stay as they were
   validateCourse(next, next.id);
   d.courses[i] = next; log(`Course ${next.name} updated`); syncInstructors(d);
@@ -1126,7 +1149,7 @@ app.post('/api/outlines/apply', wrap((req) => {
     let c = it.courseId ? d.courses.find((x) => x.id === it.courseId) : null;
     if (it.courseId && !c) { results.push({ filename: p.filename, error: 'That course no longer exists.' }); continue; }
     const inst = instructorOf(req.user);
-    if (c && req.user.role !== 'Admin' && !(inst && (teaches(inst, c) || isAuthor(inst, c)))) { results.push({ filename: p.filename, error: 'You can only update courses you teach or author.' }); continue; }
+    if (c && req.user.role !== 'Admin' && !(inst && isAuthor(inst, c))) { results.push({ filename: p.filename, error: 'Only this course’s authors can change its outline.' }); continue; }
     const created = !c;
     if (created) {
       let code = p.parsed.code || 'OUTLINE-' + (d.seq + 1);

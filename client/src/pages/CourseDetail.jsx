@@ -462,7 +462,9 @@ export default function CourseDetail({ back = '/courses', create = false }) {
   const [blank] = useState(() => emptyCourse(isAdmin));
   const custom = useCustomFields().courses;
   const saved = create ? blank : courses.find((c) => c.id === id);
-  const authorOnly = !isAdmin && saved?.teaching === false; // an instructor who authors this course but doesn't teach it
+  const authorOnly = !isAdmin && saved?.teaching === false; // an instructor who doesn't teach this course: no batches
+  // an instructor who isn't one of its Course Authors: the content is read-only (they can make a custom version, and manage their own batches if they teach it)
+  const readOnly = !isAdmin && !create && saved?.canEdit === false;
   const leaving = useRef(false); // just created: open the new course without the unsaved-changes question
   // new course: a Word outline read into the form; its file is attached when the course is created
   const [outlineDoc, setOutlineDoc] = useState(null); // { token, filename }
@@ -502,7 +504,7 @@ export default function CourseDetail({ back = '/courses', create = false }) {
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
-  const [customOpen, setCustomOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(() => !!location.state?.custom); // "Create custom version" from My Courses opens it straight away
   const [pdfOpen, setPdfOpen] = useState(false);
   // learner sign-ins made for new emails on the batches (after creating, they come along with the page change)
   const [accounts, setAccounts] = useState(() => location.state?.accounts || null);
@@ -572,16 +574,23 @@ export default function CourseDetail({ back = '/courses', create = false }) {
             <button className="btn" onClick={() => nav(back)}>Cancel</button>
             <button className="btn primary" onClick={save} disabled={busy}><Icon name="plus" small />{busy ? 'Creating…' : 'Create course'}</button>
           </>) : (<>
-          <button className="btn" onClick={() => setOutlineOpen(true)} disabled={dirty} title={dirty ? 'Save your changes first' : 'Read a Word outline into this course'}><Icon name="file" small />Upload outline</button>
+          {!readOnly && <button className="btn" onClick={() => setOutlineOpen(true)} disabled={dirty} title={dirty ? 'Save your changes first' : 'Read a Word outline into this course'}><Icon name="file" small />Upload outline</button>}
           {/* the PDF is built from the saved course, so unsaved edits have to be saved first */}
           <button className="btn" title={dirty ? 'Save your changes first so the PDF includes them' : 'Download this course as a PDF'}
             onClick={() => { if (dirty) toast('Save your changes first, so the PDF includes them'); else setPdfOpen(true); }}><Icon name="download" small />Download PDF</button>
-          <button className="btn" onClick={() => setCustomOpen(true)} disabled={dirty} title={dirty ? 'Save your changes first' : 'Copy this course for one client'}><Icon name="people" small />Custom version</button>
-          <button className="btn primary" onClick={save} disabled={busy}><Icon name="save" small />Save changes</button>
+          <button className={`btn${readOnly ? ' primary' : ''}`} onClick={() => setCustomOpen(true)} disabled={dirty} title={dirty ? 'Save your changes first' : readOnly ? 'Make your own copy of this course to adapt' : 'Copy this course for one client'}><Icon name="people" small />{readOnly ? 'Create custom version' : 'Custom version'}</button>
+          {/* read-only: saving is only for their own batches on a course they teach */}
+          {(!readOnly || saved?.teaching) && <button className={`btn${readOnly ? '' : ' primary'}`} onClick={save} disabled={busy || (readOnly && !dirty)}><Icon name="save" small />{readOnly ? 'Save batches' : 'Save changes'}</button>}
           {isAdmin && <button className="icon-btn" style={{ color: 'var(--red-ink)' }} onClick={() => setConfirmDel(true)} aria-label="Delete course" title="Delete course"><Icon name="trash" /></button>}
           </>)}
         </div>
       </section>
+      {readOnly && (
+        <div className="ro-note" role="note"><Icon name="eye" small />
+          <span><b>View only.</b> {saved?.teaching ? 'You teach this course, but only its Course Authors edit the content.' : 'You’re qualified to teach this course, but only its Course Authors edit the content.'}
+            {' '}To adapt it, <button type="button" className="linkbtn" onClick={() => setCustomOpen(true)}>create a custom version</button>: it’s yours to edit.{saved?.teaching ? ' You can still manage your batches on the Schedule tab.' : ''}</span>
+        </div>
+      )}
       {!create && <CustomVersions course={saved} back={back} />}
       <InstructorAccounts who="learner" accounts={accounts} onClose={() => { setAccounts(null); if (location.state?.accounts) nav(location.pathname, { replace: true }); }} />
       {!create && <CoursePdfDialog ids={pdfOpen ? [id] : null} onClose={() => setPdfOpen(false)} />}
@@ -597,22 +606,23 @@ export default function CourseDetail({ back = '/courses', create = false }) {
         ))}
       </div>
       {/* who teaches a course is the admin's to set and see: instructors don't get the Instructors section */}
+      <fieldset className="ro-fs" disabled={readOnly}>
       {tab === 'details' && SECTIONS.filter((s) => isAdmin || !s.picker).map((s) => (<Fragment key={s.t}>
+        {/* just before the instructors: who owns the content (admins) */}
+        {s.picker && isAdmin && <CourseAuthors course={saved} create={create} />}
         <section className="card sec">
           <h2><span className="cico"><Icon name={s.i} small /></span>{s.t}{s.picker && <span className="note"> ({draft.instructors.length} assigned)</span>}
             {s.upload && <button className="btn sm sec-act" onClick={() => (create ? pickOutline() : setOutlineOpen(true))} disabled={create ? reading : dirty} title={!create && dirty ? 'Save your changes first' : 'Fill topics and objectives from a Word outline'}><Icon name="upload" small />Upload from Word</button>}</h2>
           {s.upload && <p className="note" style={{ margin: 0 }}>Type here and format with the toolbar, paste from Word, or upload a Word outline (.docx, .doc). Bold text, headings and bullet levels are kept.</p>}
           {s.picker ? <InstructorPicker value={draft.instructors} onChange={set('instructors')} /> : (
             <div className={s.g}>{s.f.map((f) => f.type === 'rich' ? (
-              <RichText key={f.k} id={'d-' + f.k} labelClass="lbl" label={f.l} placeholder={f.ph} value={draft[f.k]} onChange={set(f.k)} />
+              <RichText key={f.k} id={'d-' + f.k} labelClass="lbl" label={f.l} placeholder={f.ph} value={draft[f.k]} onChange={set(f.k)} readOnly={readOnly} />
             ) : (
               <Field key={f.k} id={'d-' + f.k} labelClass="lbl" className={f.w || ''} label={f.l} type={f.type || 'text'} options={f.o} required={!!f.req && !(create && f.k === 'code')} hideEmpty={!!f.req}
                 placeholder={create && f.k === 'code' ? (autoCode ? `Leave blank for ${autoCode}` : 'Leave blank to make one') : f.ph} step={f.step} value={draft[f.k]} onChange={set(f.k)} error={errors[f.k]} />
             ))}</div>
           )}
         </section>
-        {/* right after the instructors: who owns the content (admins) */}
-        {s.picker && isAdmin && <CourseAuthors course={saved} create={create} />}
       </Fragment>))}
       {tab === 'details' && custom.length > 0 && (
         <section className="card sec">
@@ -623,6 +633,7 @@ export default function CourseDetail({ back = '/courses', create = false }) {
         </section>
       )}
       {tab === 'lessons' && <Lessons lessons={draft.lessons} onChange={set('lessons')} />}
+      </fieldset>
       {tab === 'schedule' && !authorOnly && <ScheduleEditor course={draft} onChange={set('schedules')} error={errors.schedules} />}
       {tab === 'syllabus' && <Syllabus c={draft} onGoLessons={() => setTab('lessons')} />}
       {tab === 'reviews' && <Reviews id={id} r={rated} />}

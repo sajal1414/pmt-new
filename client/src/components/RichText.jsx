@@ -10,7 +10,7 @@ const TOOLS = [
 ];
 
 /** Small rich-text editor that keeps bold, headings and nested lists. Emits sanitized HTML. */
-export default function RichText({ id, label, value, onChange, placeholder, labelClass }) {
+export default function RichText({ id, label, value, onChange, placeholder, labelClass, readOnly = false }) {
   const ref = useRef(null);
   const last = useRef(null); // last HTML we emitted, so typing doesn't reset the cursor
 
@@ -52,7 +52,7 @@ export default function RichText({ id, label, value, onChange, placeholder, labe
     <div className="fg rt-field">
       <label id={id + '-label'} htmlFor={id} className={labelClass}>{label}</label>
       <div className="rt">
-        <div className="rt-bar" role="toolbar" aria-label={label + ' formatting'}>
+        {!readOnly && <div className="rt-bar" role="toolbar" aria-label={label + ' formatting'}>
           {TOOLS.map((group, g) => (
             <span key={g} className="rt-group">
               {group.map(([cmd, glyph, title, style]) => (
@@ -60,8 +60,8 @@ export default function RichText({ id, label, value, onChange, placeholder, labe
               ))}
             </span>
           ))}
-        </div>
-        <div ref={ref} id={id} className="rt-area rt-content" contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true"
+        </div>}
+        <div ref={ref} id={id} className="rt-area rt-content" contentEditable={!readOnly} aria-readonly={readOnly || undefined} suppressContentEditableWarning role="textbox" aria-multiline="true"
           aria-labelledby={id + '-label'} data-placeholder={placeholder} onInput={emit} onKeyDown={onKeyDown} onPaste={onPaste} />
       </div>
     </div>

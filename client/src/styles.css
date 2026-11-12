@@ -2535,3 +2535,21 @@ td.imp-off{opacity:.38}
 .t-author{background:var(--blu-soft);color:var(--blu-ink)}
 .t-cname b .pill{margin-left:6px;vertical-align:1px}
 .pill.t-author{background:var(--blu-soft);color:var(--blu-ink);border-color:var(--blu-line)}
+.iv-rm.iv-lock{cursor:help;opacity:.45}
+.iv-rm.iv-lock:hover{background:transparent;color:var(--muted)}
+/* My Courses: Teaching / Course Author / Qualified to teach (same colours as the admin Courses panel) */
+.tc-chip.tc-teach{--c:var(--ok);--c-ink:var(--ok-ink);--c-soft:var(--ok-soft);--c-line:var(--ok-line)}
+.tc-chip.tc-auth{--c:var(--blu);--c-ink:var(--blu-ink);--c-soft:var(--blu-soft);--c-line:var(--blu-line)}
+.tc-chip.tc-qual{--c:var(--amb);--c-ink:var(--amb-ink);--c-soft:var(--amb-soft);--c-line:var(--amb-line)}
+.tc-chip.tc-teach,.tc-chip.tc-auth,.tc-chip.tc-qual{background:var(--c-soft);color:var(--c-ink);border-color:var(--c-line)}
+.tc-chip.tc-teach.on,.tc-chip.tc-auth.on,.tc-chip.tc-qual.on{background:var(--c);color:#fff;border-color:var(--c)}
+.tc-sep{width:1px;align-self:stretch;margin:4px 2px;background:var(--line)}
+.pill.t-teach{background:var(--ok-soft);color:var(--ok-ink);border-color:var(--ok-line)}
+.pill.t-qual{background:var(--amb-soft);color:var(--amb-ink);border-color:var(--amb-line)}
+.pill.t-view{background:var(--line-soft);color:var(--muted);gap:4px}
+/* course page, view only (an instructor who isn't a Course Author) */
+fieldset.ro-fs{border:0;margin:0;padding:0;min-width:0;display:contents}
+fieldset.ro-fs:disabled .rt-content,fieldset.ro-fs:disabled input,fieldset.ro-fs:disabled select,fieldset.ro-fs:disabled textarea{background:var(--surface-2);color:var(--ink);cursor:default}
+.ro-note{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-radius:12px;background:var(--amb-soft);border:1px solid var(--amb-line);color:var(--ink-2);font-size:13.5px;line-height:1.5}
+.ro-note .i{color:var(--amb-ink);flex:none;margin-top:3px}
+.ro-note .linkbtn{font-size:inherit;padding:0}
