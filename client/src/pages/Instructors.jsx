@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { Confirm, DataTable, Dialog, Field, Feedback, PageHead, EmptyState, Dash, sortRows, downloadText, toCSV } from '../components/ui.jsx';
 import RaterList from '../components/RaterList.jsx';
@@ -112,18 +112,28 @@ function CoursePicker({ value, onChange, instructorName, assign, onAssign, initi
   );
 }
 
-export function InstructorForm({ open, record, preset, onClose, onSaved, page }) {
+/**
+ * The instructor form: a pop-up (new instructor, course editor, Courses page) or, with `page`, the instructor's own page
+ * at /instructors/:id: every field editable in place, "Save changes" when something changed, and it stays on the page
+ * after saving. `onDirty(bool)` tells the page about unsaved changes (it asks before leaving).
+ */
+export function InstructorForm({ open, record, preset, onClose, onSaved, page, onDelete, onDirty }) {
   const { reload, instructors } = useData();
   const toast = useToast();
   const [f, setF] = useState({});
+  const [base, setBase] = useState({}); // the saved values, to tell whether anything changed
   const [err, setErr] = useState({});
   const [busy, setBusy] = useState(false);
   const [assign, setAssign] = useState(true);
   const [sig, setSig] = useState(null); // the instructor's certificate signature (edit only), loaded on open
   const custom = useCustomFields().instructors;
   const { courses } = useData();
-  useEffect(() => { setSig(null); if (open && record) api.get(`/api/instructors/${record.id}/signature`).then((r) => setSig(r.signature || '')).catch(() => setSig('')); }, [open, record]);
-  useEffect(() => { if (open) { setF(record ? { ...record, password: '', platformsText: (record.platforms || []).join(', ') } : { vendor: 'IBM', ...preset }); setErr({}); setAssign(true); } }, [open, record]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fill = (r) => { const v = r ? { ...r, password: '', platformsText: (r.platforms || []).join(', ') } : { vendor: 'IBM', ...preset }; setF(v); setBase(v); setErr({}); setAssign(true); };
+  useEffect(() => { setSig(null); if (open && record) api.get(`/api/instructors/${record.id}/signature`).then((r) => setSig(r.signature || '')).catch(() => setSig('')); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // refill when a different instructor is opened (not on every data reload, which would wipe unsaved typing)
+  useEffect(() => { if (open) fill(record); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dirty = !!record && JSON.stringify(f) !== JSON.stringify(base);
+  useEffect(() => { onDirty?.(dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
   const [accounts, setAccounts] = useState(null);
   const submit = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -134,16 +144,13 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page })
     const body = { ...f, platforms: splitList(f.platformsText), assign: assign ? fresh.map((c) => c.id) : [] };
     try {
       const saved = record ? await api.put('/api/instructors/' + record.id, body) : await api.post('/api/instructors', body);
+      if (page) fill(saved); // the page stays open, showing what was saved
       await reload(); toast((record ? 'Saved ' : 'Created ') + f.name); onSaved?.(saved);
-      // a new sign-in (temporary password) is shown first; on a page, leaving waits until it's been seen
-      if (saved.accounts?.length) { setAccounts(saved.accounts); if (!page) onClose(); } else onClose();
+      if (saved.accounts?.length) setAccounts(saved.accounts); // a new sign-in (temporary password)
+      if (!page) onClose();
     } catch (x) { setErr(x.fields || {}); if (!x.fields) toast(x.message); } finally { setBusy(false); }
   };
-  return (
-    <>
-    <Frame page={page} back={record && { to: `/instructors/${record.id}`, label: record.name }} open={open} onClose={onClose}
-      title={page && record ? `Edit ${record.name}` : record ? 'Edit instructor' : 'New instructor'} subtitle={record ? record.email || 'No email yet' : 'Only the name is required. Add an email so they can sign in.'}
-      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" type="submit" form="instrForm" disabled={busy}><Icon name="save" small />{busy ? 'Saving…' : record ? 'Save changes' : 'Create instructor'}</button></>}>
+  const formEl = (
       <form id="instrForm" className="form" noValidate onSubmit={submit}>
         {FIELDS.map(([k, label, type = 'text', cls = '', req = false, ph]) => (
           <Field key={k} id={'in-' + k} label={label} type={type} options={type === 'select' ? TRAVEL : undefined} className={cls} required={req} placeholder={ph} step={k === 'rating' ? '0.1' : undefined}
@@ -156,14 +163,31 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page })
           <Field key={c.key} id={'in-' + c.key} label={c.label} value={f.extra?.[c.key] || ''} onChange={(v) => setF((s) => ({ ...s, extra: { ...(s.extra || {}), [c.key]: v } }))} />
         ))}
       </form>
-      {record && sig !== null && (
-        <SignaturePad bare endpoint={`/api/instructors/${record.id}/signature`} preview={`/api/instructors/${record.id}/certificate-preview`} value={sig}
-          note={`Printed above ${record.name}’s name on their course certificates. Saved as soon as you save it here.`} onSaved={(s) => { setSig(s); reload(); }} />
-      )}
-      {/* on the edit page, the same assigned courses and ratings as the details page (for reference while editing) */}
-      {page && record && <><AssignedCourses name={record.name} /><WhoRated x={record} /></>}
+  );
+  const sigEl = record && sig !== null && (
+    <SignaturePad bare endpoint={`/api/instructors/${record.id}/signature`} preview={`/api/instructors/${record.id}/certificate-preview`} value={sig}
+      note={`Printed above ${record.name}’s name on their course certificates. Saved as soon as you save it here.`} onSaved={(s) => { setSig(s); reload(); }} />
+  );
+  const footer = page
+    ? <>{onDelete && <button type="button" className="btn danger-o" onClick={onDelete}><Icon name="trash" small />Delete</button>}
+        {dirty && <button type="button" className="btn" onClick={() => fill(record)} disabled={busy}>Discard changes</button>}
+        <button className="btn primary" type="submit" form="instrForm" disabled={busy || !dirty}><Icon name="save" small />{busy ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}</button></>
+    : <><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" type="submit" form="instrForm" disabled={busy}><Icon name="save" small />{busy ? 'Saving…' : record ? 'Save changes' : 'Create instructor'}</button></>;
+  return (
+    <>
+    <Frame page={page} back={{ to: '/instructors', label: 'Instructors' }} open={open} onClose={onClose} footer={footer}
+      title={page && record ? record.name : record ? 'Edit instructor' : 'New instructor'}
+      subtitle={page && record ? [record.email || 'No email yet', (record.platforms || []).join(', '), record.location].filter(Boolean).join(' · ') : record ? record.email || 'No email yet' : 'Only the name is required. Add an email so they can sign in.'}>
+      {page && record
+        ? <>
+            {/* the instructor's page: their details to edit on the left, the courses they're assigned to on the right */}
+            <div className="iv-cols"><div className="iv-left">{dirty && <p className="note iv-unsaved" role="status"><Icon name="alert" small />You have unsaved changes.</p>}{formEl}{sigEl}</div>
+              <aside className="iv-right"><AssignedCourses name={record.name} all /></aside></div>
+            <WhoRated x={record} />
+          </>
+        : <>{formEl}{sigEl}</>}
     </Frame>
-    <InstructorAccounts accounts={accounts} onClose={() => { setAccounts(null); if (page) onClose(); }} />
+    <InstructorAccounts accounts={accounts} onClose={() => setAccounts(null)} />
     </>
   );
 }
@@ -186,6 +210,8 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
   return (
     <Frame page={page} back={{ to: '/instructors', label: 'Instructors' }} wide title={page ? x.name : 'Instructor details'} subtitle={page ? [(x.platforms || []).join(', '), x.location].filter(Boolean).join(' · ') : ''} onClose={onClose}
       footer={<>{page ? onDelete && <button className="btn danger-o" onClick={onDelete}><Icon name="trash" small />Delete</button> : <button className="btn" onClick={onClose}>Close</button>}<button className="btn primary" onClick={onEdit}><Icon name={missing ? 'plus' : 'edit'} small />{missing ? 'Add to instructor list' : 'Edit'}</button></>}>
+      {/* on the page: details on the left, the courses they're assigned to on the right (stacked on narrow screens) */}
+      {(() => { const details = (<>
       {missing && <div className="iv-missing"><Icon name="alert" small /><span><b>{x.name}</b> teaches {taught.length} course{taught.length === 1 ? '' : 's'} but isn’t in the instructor list yet, so email, phone and other details are missing. The details below come from their courses. Click <b>Add to instructor list</b> to save a full profile.</span></div>}
       <div className="iv-head"><span className="iv-av">{initials(x.name)}</span>
         <div><div style={{ fontWeight: 700, fontSize: 16 }}>{x.name}</div>
@@ -210,21 +236,25 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
       <Tile icon="globe" label="Delivery languages">{x.languages || '—'}</Tile>
       <Tile icon="msg" label="Notes & faculty comments">{x.comments || '—'}</Tile>
       {custom.length > 0 && <div className="tiles">{custom.map((c) => <Tile key={c.key} label={c.label}>{x.extra?.[c.key] || '—'}</Tile>)}</div>}
-      <AssignedCourses name={x.name} leave={leave} />
+      </>);
+      return page
+        ? <div className="iv-cols"><div className="iv-left">{details}</div><aside className="iv-right"><AssignedCourses name={x.name} all /></aside></div>
+        : <>{details}<AssignedCourses name={x.name} leave={leave} /></>; })()}
       {!missing && <WhoRated x={x} leave={leave} />}
     </Frame>
   );
 }
 
-/** The courses an instructor is assigned to in Hazdemy (details page, pop-up and edit page). */
-function AssignedCourses({ name, leave }) {
+/** The courses an instructor is assigned to in Hazdemy (details page, pop-up and edit page). `all`: list every one (page side column). */
+function AssignedCourses({ name, leave, all }) {
   const { courses } = useData();
   const taught = courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === name.trim().toLowerCase()));
+  const shown = all ? taught : taught.slice(0, 8);
   return (
-    <div className="tile"><span>Assigned in Hazdemy ({taught.length})</span>
+    <div className={`tile${all ? ' iv-courses' : ''}`}><span>Assigned in Hazdemy ({taught.length})</span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-        {taught.length ? taught.slice(0, 8).map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
-        {taught.length > 8 && <Link to={'/courses?instructor=' + encodeURIComponent(name)} onClick={leave} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
+        {taught.length ? shown.map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
+        {taught.length > shown.length && <Link to={'/courses?instructor=' + encodeURIComponent(name)} onClick={leave} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
       </div></div>
   );
 }
@@ -353,7 +383,7 @@ export default function Instructors() {
           <button className="btn sm" onClick={() => setSel(new Set())}><Icon name="x" small />Clear</button>
         </section>
       )}
-      <DataTable cols={cols} rows={rows} noun="instructors" sort={sort} onSort={(k) => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : 1 }))} page={page} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }}
+      <DataTable cols={cols} rows={rows} noun="instructors" onRowClick={(x) => nav(`/instructors/${x.id}`)} sort={sort} onSort={(k) => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : 1 }))} page={page} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }}
         actions={(x) => <>
           <button className="del" onClick={() => setDel(x.id)} aria-label={'Delete ' + x.name} title="Delete"><Icon name="trash" small /></button>
         </>}
@@ -385,7 +415,11 @@ export default function Instructors() {
   );
 }
 
-/** An instructor's own page: /instructors/:id shows the details, /instructors/:id/edit the form. */
+/**
+ * An instructor's own page (/instructors/:id): every detail editable in place, "Save changes" to save, the courses
+ * they're assigned to alongside and their ratings below. Leaving with unsaved changes asks first.
+ * The old /instructors/:id/edit address opens the same page.
+ */
 export function InstructorPage({ edit = false }) {
   const { id } = useParams();
   const { instructors, courses, loading, reload } = useData();
@@ -393,18 +427,27 @@ export function InstructorPage({ edit = false }) {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const [del, setDel] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const leaving = useRef(false); // set after a delete, so the page can leave without asking
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && !leaving.current && currentLocation.pathname !== nextLocation.pathname);
+  useEffect(() => { const h = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h); }, [dirty]);
   const x = instructors.find((i) => i.id === id);
-  useEffect(() => { window.scrollTo({ top: 0 }); }, [id, edit]);
+  useEffect(() => { if (edit) nav(`/instructors/${id}`, { replace: true }); }, [edit, id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // ?rated=1 (the rating in the list): go to "Who rated"
+    if (x && params.get('rated') === '1') setTimeout(() => document.getElementById('who-rated')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+    else window.scrollTo({ top: 0 });
+  }, [id, !!x]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!x) return loading ? <p className="note">Loading…</p>
     : <EmptyState title="Instructor not found" text="They may have been deleted or merged into another profile." action={<Link className="btn" to="/instructors">Back to Instructors</Link>} />;
-  if (edit) return <InstructorForm page open record={x} onClose={() => nav(`/instructors/${x.id}`)} />;
   const assigned = courses.filter((c) => (c.instructors || []).includes(x.name)).length;
   return (
     <>
-      <InstructorView page x={x} focusRated={params.get('rated') === '1'} onEdit={() => nav(`/instructors/${x.id}/edit`)} onDelete={() => setDel(true)} />
+      <InstructorForm key={x.id} page open record={x} onClose={() => {}} onDirty={setDirty} onDelete={() => setDel(true)} />
+      <Confirm open={blocker.state === 'blocked'} title="Discard unsaved changes?" message={`You have changes to ${x.name} that aren’t saved yet. Leave this page and lose them?`} confirmLabel="Discard changes"
+        onClose={() => blocker.reset?.()} onConfirm={() => blocker.proceed?.()} />
       <Confirm open={del} title="Delete instructor?" message={`This removes ${x.name} from Hazdemy.${assigned ? ` They’ll be removed from ${assigned} course${assigned > 1 ? 's' : ''}.` : ''}`} confirmLabel="Delete instructor"
         onClose={() => setDel(false)} onConfirm={async () => {
-          try { await api.del('/api/instructors/' + x.id); toast('Deleted ' + x.name); setDel(false); nav('/instructors', { replace: true }); await reload(); }
+          try { await api.del('/api/instructors/' + x.id); toast('Deleted ' + x.name); setDel(false); leaving.current = true; nav('/instructors', { replace: true }); await reload(); }
           catch (e) { toast(e.message); }
         }} />
     </>
