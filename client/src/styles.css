@@ -2584,3 +2584,37 @@ input.auto-code:placeholder-shown{font-family:inherit;font-weight:400;letter-spa
 .ol-plat .sel.need{border-color:var(--warn-line);box-shadow:0 0 0 3px var(--warn-soft)}
 .ol-code{display:flex;align-items:center;gap:6px;margin:0;color:var(--ok-ink)}
 .ol-code .code{color:var(--ink)}
+/* IP Owned (courses an instructor developed): violet, the 4th list */
+.iv-c-ipowned{--c:var(--vio);--c-ink:var(--vio-ink);--c-soft:var(--vio-soft);--c-line:var(--vio-line)}
+.iv-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
+.iv-tabs button{gap:4px;padding:0 4px;font-size:12.5px}
+.ba-roles{grid-template-columns:repeat(4,minmax(0,1fr))}
+.iv-b.iv-c-ipowned{background:var(--c-soft);color:var(--c-ink);box-shadow:inset 0 0 0 1px var(--c-line)}
+.own-more{display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px dashed var(--line)}
+.own{display:flex;flex-direction:column;gap:8px}
+.own-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.own-list li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 8px;border-radius:10px;background:var(--surface-2)}
+.own-list .own-nocode{color:var(--muted)}
+.own-add{display:grid;grid-template-columns:minmax(110px,160px) minmax(0,1fr) auto;gap:8px;align-items:center}
+.own-add input{height:38px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;min-width:0}
+.own-add .own-hint{grid-column:1/-1}
+.own-add.compact{grid-template-columns:minmax(90px,120px) minmax(0,1fr) auto}
+.own-ext .code{color:var(--vio-ink)}
+.lbl-like{font-weight:600;font-size:13px;color:var(--ink-2)}
+@media (max-width:560px){.own-add,.own-add.compact{grid-template-columns:1fr}}
+/* four course tabs: two per row in the side panel, so each label and count has room */
+.iv-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
+.iv-tabs button{gap:6px;padding:0 8px;font-size:13px;justify-content:flex-start}
+.iv-tabs button .n{margin-left:auto}
+/* "IP Owned by" on courses: violet, like the IP Owned tab on instructors */
+.ip-ico{background:var(--vio-soft)!important;color:var(--vio-ink)!important}
+.ip-card .ichip.ip-chip{background:var(--vio-soft);color:var(--vio-ink);box-shadow:inset 0 0 0 1px var(--vio-line)}
+.ip-card .ichip-name{color:inherit}
+.ip-card .picker{position:relative;z-index:6}
+.ca-tag.ip-tag{background:var(--vio-soft);color:var(--vio-ink)}
+/* the four course tabs on one line: name + count, sized to their text */
+.iv-tabs{display:flex;gap:3px}
+.iv-tabs button{flex:1 1 auto;justify-content:center;gap:5px;padding:0 6px;font-size:12.5px;min-width:0}
+.iv-tabs button .i{display:none}
+.iv-tabs button .n{margin-left:0;min-width:18px;height:18px;padding:0 5px;font-size:11px}
+@media (max-width:1300px){.iv-tabs button{font-size:11.5px;padding:0 4px;gap:3px}.iv-tabs button .n{min-width:16px;padding:0 4px}.iv-cols{grid-template-columns:minmax(0,1.5fr) minmax(330px,1fr)}}

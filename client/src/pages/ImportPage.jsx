@@ -18,7 +18,7 @@ const LABELS = {
   },
   instructors: {
     name: 'Name', email: 'Email', phone: 'Phone', location: 'Location', travel: 'Travel', vendor: 'Vendor', platforms: 'Platforms', portfolio: 'Portfolio', product: 'Product',
-    skills: 'Skills / products', canTeach: 'Course Author', qualified: 'Qualified to teach', languages: 'Languages', rating: 'Rating', comments: 'Comments'
+    skills: 'Skills / products', canTeach: 'Course Author', qualified: 'Qualified to teach', ipOwned: 'IP Owned (courses developed)', languages: 'Languages', rating: 'Rating', comments: 'Comments'
   }
 };
 // why a row can't be imported yet; each kind has its own tab: [tab name, tone, icon, what's empty on that tab]

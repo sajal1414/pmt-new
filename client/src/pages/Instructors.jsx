@@ -11,8 +11,11 @@ import { useCustomFields } from '../lib/customFields.js';
 import InstructorAccounts, { TempPassword } from '../components/InstructorAccounts.jsx';
 import LanguagePicker from '../components/LanguagePicker.jsx';
 import BulkAssign from '../components/BulkAssign.jsx';
+import { AddOwnedCourse, ownedList, ownedText } from '../components/OwnedCourses.jsx';
 
-const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'vendor', 'travel', 'languages', 'comments'];
+// IP Owned is a list of { code, title }: one readable cell in the CSV
+const csvRow = (x) => ({ ...x, ipOwned: ownedText(x.ipOwned) });
+const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'ipOwned', 'vendor', 'travel', 'languages', 'comments'];
 const FIELDS = [
   ['name', 'Name', 'text', '', true], ['email', 'Email', 'email'], ['phone', 'Telephone', 'tel', '', false, 'e.g. +91 98765 43210'], ['location', 'Location'], ['travel', 'Travel preference', 'select'], ['vendor', 'Vendor'],
   ['platformsText', 'Platform', 'text', '', false, 'e.g. Data & AI, Security'], ['portfolio', 'Portfolio'], ['product', 'Product'],
@@ -137,7 +140,7 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
   const fill = (r) => {
     const v = r ? { ...r, canTeach: r.canTeach || '', qualified: r.qualified || '', password: '', platformsText: (r.platforms || []).join(', ') } : { vendor: 'IBM', ...preset };
     // on the page the course lists are edited (and saved) in the Courses panel, so the form leaves them alone
-    if (page) { delete v.canTeach; delete v.qualified; }
+    if (page) { delete v.canTeach; delete v.qualified; delete v.ipOwned; }
     setF(v); setBase(v); setErr({}); setAssign(true);
   };
   useEffect(() => { setSig(null); if (open && record) api.get(`/api/instructors/${record.id}/signature`).then((r) => setSig(r.signature || '')).catch(() => setSig('')); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -251,6 +254,8 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
           <div className="tile" style={{ fontSize: 13 }}>{x.canTeach || <span className="note">Not specified</span>}</div></div>
         <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>Qualified to teach</div>
           <div className="tile" style={{ fontSize: 13 }}>{(() => { const all = [...new Set([...splitList(x.qualified || ''), ...taught.map((c) => c.code)].filter(Boolean))]; return all.length ? all.join(', ') : <span className="note">Not specified</span>; })()}</div></div>
+        <div><div className="note" style={{ fontWeight: 700, color: 'var(--ink-2)', marginBottom: 6 }}>IP Owned (courses they developed)</div>
+          <div className="tile" style={{ fontSize: 13 }}>{ownedText(x.ipOwned) || <span className="note">Not specified</span>}</div></div>
       </div>
       <div className="tiles">
         <Tile icon="phone" label="Telephone">{x.phone ? <a href={'tel:' + x.phone.replace(/[^\d+]/g, '')}>{x.phone}</a> : <span className="note">Not added. Click {missing ? 'Add to instructor list' : 'Edit'} to add one.</span>}</Tile>
@@ -339,14 +344,16 @@ function AssignedCourses({ name, leave, all, editable }) {
   );
 }
 
-/* ---------- the instructor page's "Courses" panel: Teaching · Qualified to teach · Course Author ---------- */
+/* ---------- the instructor page's "Courses" panel: Teaching · Author · Qualified · IP Owned ---------- */
 const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
-// in tab order; each list has its own colour (tab, count, badges): Teaching green, Author blue, Qualified amber
+// in tab order; each list has its own colour (tab, count, badges): Teaching green, Author blue, Qualified amber, IP Owned violet
 const LISTS = {
   teaching: { tab: 'Teaching', icon: 'book', blurb: 'Courses they’re assigned to in Hazdemy: they appear in their portal, schedule and certificates.', empty: 'Not teaching any course yet.', add: 'Assign to a course…' },
   author: { tab: 'Author', icon: 'edit', blurb: 'Courses whose content they own.', empty: 'No courses listed yet.', add: 'Add a course they own…' },
-  qualified: { tab: 'Qualified', icon: 'badge', blurb: 'Courses they can teach, without necessarily owning the content. Every course they teach counts automatically.', empty: 'No courses listed yet.', add: 'Add a course they can teach…' }
+  qualified: { tab: 'Qualified', icon: 'badge', blurb: 'Courses they can teach, without necessarily owning the content. Every course they teach counts automatically.', empty: 'No courses listed yet.', add: 'Add a course they can teach…' },
+  ipowned: { tab: 'IP Owned', icon: 'shield', blurb: 'Courses they developed and own the IP for: we may only use them to deliver these. Instructors list these themselves in their profile; they don’t have to be in Hazdemy.', empty: 'No courses listed yet.', add: 'Add a Hazdemy course they own the IP for…' }
 };
+const LIST_NAMES = { teaching: 'Teaching', author: 'Course Author', qualified: 'Qualified to teach', ipowned: 'IP Owned' };
 
 /**
  * Who teaches a course lives on the course; "Qualified to teach" and "Course Author" are lists of course codes on the
@@ -376,7 +383,10 @@ function CoursesPanel({ x }) {
   // authorship comes from the server (`authors` on each course): the Author list, or the course's imported author text
   const authoring = courses.filter((c) => (c.authors || []).some((n) => sameName(n, x.name)));
   const isAuthoring = (c) => authoring.some((a) => a.id === c.id);
-  const inList = (key, c) => (key === 'author' ? isAuthoring(c) : codes[key].some((t) => byCode(t)?.id === c.id));
+  // IP Owned: the instructor's own list of courses they developed, [{ code, title }] (may not be Hazdemy courses)
+  const owned = ownedList(x.ipOwned);
+  const isOwned = (c) => owned.some((e) => e.code && sameName(e.code, c.code));
+  const inList = (key, c) => (key === 'author' ? isAuthoring(c) : key === 'ipowned' ? isOwned(c) : codes[key].some((t) => byCode(t)?.id === c.id));
   // each list as rows: { key, c (course or null), text (what's stored) }
   const rows = {
     teaching: teaching.map((c) => ({ key: c.id, c })),
@@ -384,7 +394,12 @@ function CoursesPanel({ x }) {
     // qualified: the courses added by hand, plus every course they teach (teaching one means they're qualified for it)
     qualified: [...codes.qualified.map((t) => ({ key: t, c: byCode(t) || null, text: t })),
       ...teaching.filter((c) => !codes.qualified.some((t) => byCode(t)?.id === c.id)).map((c) => ({ key: 'teach-' + c.id, c, viaTeaching: true }))]
-      .sort((a, b) => String(a.c?.code || a.text).localeCompare(String(b.c?.code || b.text)))
+      .sort((a, b) => String(a.c?.code || a.text).localeCompare(String(b.c?.code || b.text))),
+    ipowned: owned.map((e) => ({ key: 'own-' + (e.code || e.title).toLowerCase(), c: (e.code && byCode(e.code)) || null, text: e.code, title: e.title, entry: e }))
+  };
+  const saveOwned = async (list, msg) => {
+    await api.put('/api/instructors/' + x.id, { ipOwned: list });
+    await reload(['instructors', 'activity']); toast(msg);
   };
   // a course's authors are set on the course, which keeps every instructor's Author list in step
   const setAuthor = async (c, on) => {
@@ -406,13 +421,15 @@ function CoursesPanel({ x }) {
   const add = (c) => run(c.id, async () => {
     if (tab === 'teaching') await setTeaching(c, true);
     else if (tab === 'author') await setAuthor(c, true);
+    else if (tab === 'ipowned') await saveOwned([...owned, { code: c.code, title: c.name }], `${c.code} added to IP Owned`);
     else await saveList(tab, [...codes[tab], c.code], `${c.code} added to Qualified to teach`);
     setQ(''); setOpen(false);
   });
   const drop = (r) => run(r.key, async () => {
     if (tab === 'teaching') await setTeaching(r.c, false);
     else if (tab === 'author' && r.c) await setAuthor(r.c, false);
-    else await saveList(tab, codes[tab].filter((t) => t !== r.text), `${r.text} removed from ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}`);
+    else if (tab === 'ipowned') await saveOwned(owned.filter((e) => e !== r.entry), `${r.text || r.title} removed from IP Owned`);
+    else await saveList(tab, codes[tab].filter((t) => t !== r.text), `${r.text} removed from ${LIST_NAMES[tab]}`);
     setRemove(null);
   });
   const s = q.trim().toLowerCase();
@@ -422,7 +439,8 @@ function CoursesPanel({ x }) {
   const badges = (c) => c && [
     tab !== 'teaching' && isTeaching(c) && <span key="t" className="iv-b iv-c-teaching">Teaching</span>,
     tab !== 'author' && inList('author', c) && <span key="a" className="iv-b iv-c-author">Author</span>,
-    tab !== 'qualified' && inList('qualified', c) && <span key="q" className="iv-b iv-c-qualified">Qualified</span>
+    tab !== 'qualified' && inList('qualified', c) && <span key="q" className="iv-b iv-c-qualified">Qualified</span>,
+    tab !== 'ipowned' && isOwned(c) && <span key="o" className="iv-b iv-c-ipowned">IP Owned</span>
   ].filter(Boolean);
   return (
     <section className={`iv-panel iv-c-${tab}`} aria-label="Courses">
@@ -451,6 +469,7 @@ function CoursesPanel({ x }) {
         {rows[tab].length ? rows[tab].map((r) => (
           <div key={r.key} className={`iv-crow${r.c ? '' : ' ext'}`}>
             {r.c ? <Link to={'/courses/' + r.c.id}><span className="code">{r.c.code}</span><span>{r.c.name}</span></Link>
+              : tab === 'ipowned' ? <span className="iv-ext own-ext" title="Not a course in Hazdemy"><span className="code">{r.text || '—'}</span><span>{r.title || <span className="note">No title</span>} <span className="note">· not in Hazdemy</span></span></span>
               : <span className="iv-ext" title="Not a course in Hazdemy"><span className="code">?</span><span>{r.text}</span></span>}
             <span className="iv-crow-end">
               {badges(r.c)}
@@ -461,11 +480,14 @@ function CoursesPanel({ x }) {
           </div>
         )) : <div className="iv-empty"><Icon name={L.icon} /><span>{L.empty}</span></div>}
       </div>
+      {/* IP Owned: a course they developed that isn't in Hazdemy can be added by code and title */}
+      {tab === 'ipowned' && <div className="own-more"><span className="note">Not in Hazdemy? Add it by code and title:</span>
+        <AddOwnedCourse compact busy={!!busy} known={byCode} onAdd={(e) => run('own-add', () => saveOwned([...owned, e], `${e.code || e.title} added to IP Owned`))} /></div>}
       <Confirm open={!!remove} busy={!!busy} confirmLabel="Remove"
-        title={tab === 'teaching' ? 'Remove from this course?' : `Remove from ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}?`}
+        title={tab === 'teaching' ? 'Remove from this course?' : `Remove from ${LIST_NAMES[tab]}?`}
         message={!remove ? '' : tab === 'teaching'
           ? `${x.name} will no longer be an instructor of ${remove.c.code} ${remove.c.name}.${(remove.c.schedules || []).some((b) => b.instructor && sameName(b.instructor, x.name)) ? ' Batches they run on it keep their name until you change them on the course.' : ''}`
-          : `${remove.c ? `${remove.c.code} ${remove.c.name}` : remove.text} is taken off this list. It doesn’t change who teaches the course.`}
+          : `${remove.c ? `${remove.c.code} ${remove.c.name}` : [remove.text, remove.title].filter(Boolean).join(' ')} is taken off this list. It doesn’t change who teaches the course.`}
         onClose={() => setRemove(null)} onConfirm={() => drop(remove)} />
     </section>
   );
@@ -509,7 +531,7 @@ export default function Instructors() {
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return sortRows(instructors.filter((x) => (!s || [x.name, x.email, x.phone, (x.platforms || []).join(' '), x.product, x.skills, x.canTeach, x.qualified, x.location].join(' ').toLowerCase().includes(s))
+    return sortRows(instructors.filter((x) => (!s || [x.name, x.email, x.phone, (x.platforms || []).join(' '), x.product, x.skills, x.canTeach, x.qualified, ownedText(x.ipOwned), x.location].join(' ').toLowerCase().includes(s))
       && (!platform || (x.platforms || []).includes(platform)) && (!vendor || x.vendor === vendor)), sort, (x, k) => (k === 'learner' ? ratings.instructors[x.id]?.avg : x[k]));
   }, [instructors, ratings, q, platform, vendor, sort]);
   const active = q || platform || vendor;
@@ -575,7 +597,7 @@ export default function Instructors() {
       <PageHead eyebrow="Instructor repository" title="Instructors"
         summary={<><span className="pill acc">{instructors.length} certified</span><span className="pill gone">{uniq(instructors.map((i) => i.location)).length} locations</span></>}
         actions={<>
-          <button className="btn" onClick={() => { downloadText(toCSV(rows, EXPORT_KEYS), `atlas-instructors-${new Date().toISOString().slice(0, 10)}.csv`); toast(`Exported ${rows.length} instructors`); }}><Icon name="download" small />Export CSV</button>
+          <button className="btn" onClick={() => { downloadText(toCSV(rows.map(csvRow), EXPORT_KEYS), `atlas-instructors-${new Date().toISOString().slice(0, 10)}.csv`); toast(`Exported ${rows.length} instructors`); }}><Icon name="download" small />Export CSV</button>
           <button className="btn" onClick={() => nav('/instructors/import')}><Icon name="upload" small />Bulk import</button>
           <button className="btn" onClick={makeSignIns} title="Create an Instructor sign-in for every instructor who doesn’t have one yet"><Icon name="people" small />Create sign-ins</button>
           <button className="btn primary" onClick={() => setForm({ record: null })}><Icon name="plus" small />New instructor</button>
@@ -592,7 +614,7 @@ export default function Instructors() {
           {!allOn && rows.length > 0 && <button className="linkbtn" onClick={toggleAll}>Select all {rows.length} listed</button>}
           <span className="grow" />
           <button className="btn sm" onClick={() => setAssignIds(picked.map((x) => x.id))}><Icon name="book" small />Assign courses</button>
-          <button className="btn sm" onClick={() => downloadText(toCSV(picked, EXPORT_KEYS), `atlas-instructors-selected-${new Date().toISOString().slice(0, 10)}.csv`)}><Icon name="table" small />Export CSV</button>
+          <button className="btn sm" onClick={() => downloadText(toCSV(picked.map(csvRow), EXPORT_KEYS), `atlas-instructors-selected-${new Date().toISOString().slice(0, 10)}.csv`)}><Icon name="table" small />Export CSV</button>
           <button className="btn sm danger-o" onClick={() => { setTyped(''); setBulkDel(true); }}><Icon name="trash" small />Delete</button>
           <button className="btn sm" onClick={() => setSel(new Set())}><Icon name="x" small />Clear</button>
         </section>

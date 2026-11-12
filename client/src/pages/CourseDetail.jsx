@@ -93,6 +93,65 @@ function CourseAuthors({ course, create }) {
 }
 
 
+/**
+ * "IP Owned by": the instructors who developed this course and own its IP (from their "IP Owned" lists; instructors can
+ * add these themselves in their profile). Saved straight away, kept in step with each instructor's IP Owned tab.
+ */
+function CourseIpOwners({ course, create }) {
+  const { instructors, reload } = useData();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
+  }, []);
+  const owners = course?.ipOwners || [];
+  const s = q.trim().toLowerCase();
+  const byName = (n) => instructors.find((i) => i.name.toLowerCase() === n.toLowerCase());
+  const options = instructors.filter((i) => !owners.some((n) => n.toLowerCase() === i.name.toLowerCase())
+    && (!s || `${i.name} ${i.email} ${i.skills} ${i.product}`.toLowerCase().includes(s))).slice(0, 40);
+  const send = async (list, msg) => {
+    setBusy(true);
+    try { await api.put(`/api/courses/${course.id}/ip-owners`, { owners: list }); await reload(['courses', 'instructors', 'activity']); toast(msg); }
+    catch (x) { toast(x.message); } finally { setBusy(false); }
+  };
+  return (
+    <section className="card sec ip-card">
+      <h2><span className="cico ip-ico"><Icon name="shield" small /></span>IP Owned by <span className="note">({owners.length})</span></h2>
+      {create ? <p className="note" style={{ margin: 0 }}>Add the instructors who own this course’s IP once it’s created.</p> : (<>
+        <p className="note" style={{ margin: 0 }}>Instructors who developed this course and own its IP: we may only use them to deliver it. Instructors can also list these themselves in their profile. Saved straight away.</p>
+        <div className="assigned">
+          {owners.map((n) => { const i = byName(n); return (
+            <span key={n} className="ichip ip-chip">
+              {i ? <Link className="ichip-name" to={`/instructors/${i.id}`} title={`Open ${n}’s page`}>{n}</Link> : n}
+              <button type="button" disabled={busy} onClick={() => send(owners.filter((x) => x !== n), `${n} no longer listed as owning the IP of ${course.code}`)} aria-label={'Remove ' + n}><Icon name="x" small /></button></span>
+          ); })}
+          {!owners.length && <span className="note">No instructor listed yet.</span>}
+        </div>
+        <div className="picker" ref={box}>
+          <label className="pick-in" htmlFor="ipQ"><Icon name="plus" small /><span className="sr">Add an IP owner</span>
+            <input id="ipQ" placeholder="Add an instructor who owns its IP: search by name, email or skill…" autoComplete="off" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} /></label>
+          {open && (
+            <div className="pick-pop ca-pop"><div className="pick-list">
+              {options.length ? options.map((i) => (
+                <button key={i.id} type="button" className="iv-opt" disabled={busy} onClick={() => { setQ(''); setOpen(false); send([...owners, i.name], `${i.name} listed as owning the IP of ${course.code}`); }}>
+                  <span className="iv-opt-n"><b>{i.name}</b> <span className="note">{[i.email, i.product].filter(Boolean).join(' · ')}</span></span><span />
+                  <span className="iv-opt-a"><Icon name="plus" small />Add</span>
+                </button>
+              )) : <p className="note" style={{ padding: 14, margin: 0 }}>{s ? `No instructor matches “${q}”.` : 'Every instructor is already listed.'}</p>}
+            </div></div>
+          )}
+        </div>
+      </>)}
+    </section>
+  );
+}
+
 function InstructorPicker({ value, onChange }) {
   const { instructors } = useData();
   const [open, setOpen] = useState(false);
@@ -613,7 +672,7 @@ export default function CourseDetail({ back = '/courses', create = false }) {
       <fieldset className="ro-fs" disabled={readOnly}>
       {tab === 'details' && SECTIONS.filter((s) => isAdmin || !s.picker).map((s) => (<Fragment key={s.t}>
         {/* just before the instructors: who owns the content (admins) */}
-        {s.picker && isAdmin && <CourseAuthors course={saved} create={create} />}
+        {s.picker && isAdmin && <><CourseAuthors course={saved} create={create} /><CourseIpOwners course={saved} create={create} /></>}
         <section className="card sec">
           <h2><span className="cico"><Icon name={s.i} small /></span>{s.t}{s.picker && <span className="note"> ({draft.instructors.length} assigned)</span>}
             {s.upload && <button className="btn sm sec-act" onClick={() => (create ? pickOutline() : setOutlineOpen(true))} disabled={create ? reading : dirty} title={!create && dirty ? 'Save your changes first' : 'Fill topics and objectives from a Word outline'}><Icon name="upload" small />Upload from Word</button>}</h2>

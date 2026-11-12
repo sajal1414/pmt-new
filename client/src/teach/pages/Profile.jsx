@@ -7,6 +7,8 @@ import { useToast } from '../../lib/store.jsx';
 import { useTeach, useTeachData, Avatar, Loading, ErrorNote } from '../lib.jsx';
 import SignaturePad from '../SignaturePad.jsx';
 import LanguagePicker from '../../components/LanguagePicker.jsx';
+import OwnedCourses from '../../components/OwnedCourses.jsx';
+import { useData } from '../../lib/store.jsx';
 
 const TRAVEL = ['Can Travel', 'Virtual Only', 'In Person Only', 'Both'];
 const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -25,6 +27,7 @@ export default function Profile() {
   const [theme, setTheme] = useState(read('atlas-theme') || 'system');
   useEffect(() => { if (data) setF({ ...data, platforms: (data.platforms || []).join(', ') }); }, [data]);
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }));
+  const { courses } = useData(); // to show a listed code's Hazdemy title
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr({});
     try { await api.put(q('/api/teach/profile'), f); toast('Profile saved'); reload(); reloadSummary(); }
@@ -57,6 +60,10 @@ export default function Profile() {
               <Field id="p-skills" className="full" label="Skills" value={f.skills} onChange={set('skills')} placeholder="DataStage, watsonx.data, QRadar…" />
               <Field id="p-can" className="full" label="Course Author (courses whose content you own)" value={f.canTeach || ''} onChange={set('canTeach')} placeholder="Course codes or names" />
               <Field id="p-qual" className="full" label="Qualified to teach" value={f.qualified || ''} onChange={set('qualified')} placeholder="Course codes or names" />
+              {/* courses they developed: the instructor lists them here (code and title); admins see them as "IP Owned" */}
+              <div className="fg full"><span className="lbl-like">Courses I developed (IP owned)</span>
+                <span className="note">Courses you developed and own the IP for, whether or not they’re in Hazdemy. Add each one’s code and title, then Save profile.</span>
+                <OwnedCourses value={f.ipOwned} onChange={set('ipOwned')} known={(code) => courses.find((c) => c.code.toLowerCase() === code.toLowerCase())} /></div>
               <Field id="p-bio" className="full" label="About you" type="textarea" value={f.comments} onChange={set('comments')} placeholder="A short bio learners and admins will see" />
               <div className="full"><button className="btn primary" disabled={busy}><Icon name="save" small />{busy ? 'Saving…' : 'Save profile'}</button></div>
             </form>

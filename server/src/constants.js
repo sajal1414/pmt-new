@@ -8,7 +8,7 @@ export const TRAVEL = ['Can Travel', 'Virtual Only', 'In Person Only', 'Both'];
 export const ROLES = ['Admin', 'Instructor', 'Learner'];
 
 export const COURSE_FIELDS = ['code', 'ibmCode', 'pmt', 'name', 'status', 'vendor', 'platform', 'portfolio', 'product', 'instructors', 'delivery', 'duration', 'hours', 'outlineStatus', 'outline', 'description', 'objectives', 'topics', 'skill', 'maxStudents', 'prereqs', 'persona', 'labConfig', 'deliveryNotes', 'labLocation', 'ipOwner', 'author', 'planned', 'release', 'retire', 'ibmRetire', 'dailyRate', 'materialsCost', 'labCost', 'price', 'learningPath', 'badge', 'certification', 'recordSource', 'notes', 'lessons', 'schedules', 'customFor', 'baseCourse', 'extra', 'created'];
-export const INSTRUCTOR_FIELDS = ['name', 'email', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'languages', 'rating', 'comments', 'extra'];
+export const INSTRUCTOR_FIELDS = ['name', 'email', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'ipOwned', 'languages', 'rating', 'comments', 'extra'];
 
 export const today = () => new Date().toISOString().slice(0, 10);
 export const uniq = (a) => [...new Set(a.filter((x) => x != null && x !== ''))];
@@ -53,3 +53,20 @@ export const namesLookAlike = (x, y) => {
   if (!a || !b || String(x).trim().toLowerCase() === String(y).trim().toLowerCase()) return false;
   return a === b || (short >= 6 && editDistance(a, b) <= 2) || (short >= 8 && (a.includes(b) || b.includes(a)));
 };
+
+/**
+ * An instructor's "IP Owned" list: the courses they developed and own the IP for, entered by them or an admin.
+ * Stored as [{ code, title }] (a course may not be in Hazdemy at all). Accepts that, plain codes, or "A, B" text.
+ */
+export function cleanOwned(v) {
+  const list = Array.isArray(v) ? v : splitList(String(v || '')).map((code) => ({ code }));
+  const seen = new Set(), out = [];
+  for (const e of list) {
+    const o = typeof e === 'string' ? { code: e } : e || {};
+    const code = String(o.code || '').trim().slice(0, 60), title = String(o.title || '').trim().slice(0, 200);
+    const key = (code || title).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key); out.push({ code, title });
+  }
+  return out.slice(0, 300);
+}

@@ -7,7 +7,8 @@ import { useData, useToast } from '../lib/store.jsx';
 const ROLES = [
   ['teaching', 'Teaching', 'book', 'Assign them as instructors of the courses.'],
   ['author', 'Course Author', 'edit', 'They own the content and can edit it.'],
-  ['qualified', 'Qualified to teach', 'badge', 'They can teach it (every course they teach counts anyway).']
+  ['qualified', 'Qualified to teach', 'badge', 'They can teach it (every course they teach counts anyway).'],
+  ['ipowned', 'IP Owned', 'shield', 'They developed the course and own its IP.']
 ];
 const low = (s) => String(s || '').trim().toLowerCase();
 const tokens = (s) => String(s || '').split(/[,;\n]/).map(low).filter(Boolean);
@@ -38,6 +39,7 @@ export default function BulkAssign({ fixed, ids, onClose, onDone }) {
   const linked = (c, i) => {
     if (role === 'teaching') return (c.instructors || []).some((n) => low(n) === low(i.name));
     if (role === 'author') return (c.authors || []).some((n) => low(n) === low(i.name));
+    if (role === 'ipowned') return (Array.isArray(i.ipOwned) ? i.ipOwned.map((e) => e?.code) : tokens(i.ipOwned)).some((t) => low(t) === low(c.code));
     return tokens(i.qualified).some((t) => t === low(c.code) || t === low(c.name));
   };
   const pairs = chosenCourses.length * chosenInsts.length;

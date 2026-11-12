@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { loadEnv } from './env.js';
 import { init, load, save, reset, uid, log, backup, storage, DATA_FILE } from './db.js';
-import { STATUSES, ROLES, EMAIL, phoneOk, PHONE_MSG, COURSE_FIELDS, INSTRUCTOR_FIELDS, blankCourse, splitList, customKey, customFieldsOf, cleanExtra, namesLookAlike } from './constants.js';
+import { STATUSES, ROLES, EMAIL, phoneOk, PHONE_MSG, COURSE_FIELDS, INSTRUCTOR_FIELDS, blankCourse, splitList, customKey, customFieldsOf, cleanExtra, namesLookAlike, cleanOwned } from './constants.js';
 import { readWorkbook, analyse, sampleWorkbook } from './importer.js';
 import { readDocument, parseOutline, matchCourse, outlineToCourse } from './outline.js';
 import { isHtml, sanitizeHtml } from './richtext.js';
@@ -287,7 +287,10 @@ const maskCourse = (c, inst) => {
     author: author ? inst.name : '', authors: author ? [inst.name] : [], authorText: '', teaching, authoring: author, qualified: qualifiedFor(inst, c), canEdit: author };
 };
 /** Admins: the course with its authors worked out (`authors` names, `authorText` when that's no instructor). */
-const withAuthors = (c, d = load()) => { const a = authorsOf(d, c); return { ...c, authors: a.names, authorText: a.text }; };
+const withAuthors = (c, d = load()) => { const a = authorsOf(d, c); return { ...c, authors: a.names, authorText: a.text, ipOwners: ipOwnersOf(d, c) }; };
+/** The instructors whose "IP Owned" list has this course (by its code): they developed it and own its IP. */
+const ownsIp = (i, c) => cleanOwned(i.ipOwned).some((e) => e.code && sameName(e.code, c.code));
+const ipOwnersOf = (d, c) => d.instructors.filter((i) => ownsIp(i, c)).map((i) => i.name);
 /** What `user` may read of course `c`: the course itself (admins), it masked (its instructor or author), or null. */
 function courseFor(user, c) {
   if (!c) return null;
@@ -645,8 +648,8 @@ app.put('/api/courses/:id/authors', wrap((req) => {
 app.post('/api/courses/bulk-assign', wrap((req) => {
   if (req.user.role !== 'Admin') throw new HttpError(403, 'Only admins can assign courses.');
   const d = load(), b = req.body || {};
-  const role = ['teaching', 'author', 'qualified'].includes(b.role) ? b.role : '', add = b.action !== 'remove';
-  if (!role) throw new HttpError(422, 'Choose Teaching, Course Author or Qualified to teach.');
+  const role = ['teaching', 'author', 'qualified', 'ipowned'].includes(b.role) ? b.role : '', add = b.action !== 'remove';
+  if (!role) throw new HttpError(422, 'Choose Teaching, Course Author, Qualified to teach or IP Owned.');
   const cids = new Set((Array.isArray(b.courseIds) ? b.courseIds : []).map(String)), iids = new Set((Array.isArray(b.instructorIds) ? b.instructorIds : []).map(String));
   const courses = d.courses.filter((c) => cids.has(c.id)), insts = d.instructors.filter((i) => iids.has(i.id));
   if (!courses.length || !insts.length) throw new HttpError(422, 'Choose at least one course and one instructor.');
@@ -663,6 +666,11 @@ app.post('/api/courses/bulk-assign', wrap((req) => {
       const on = isAuthor(i, c);
       if (add && !on) { makeAuthor(i, c); did = true; }
       if (!add && on) { if (listsCourse(i, c)) i.canTeach = dropToken(i.canTeach, c); if (textIs(i, c)) c.author = ''; did = true; }
+    } else if (role === 'ipowned') {
+      // IP Owned: [{ code, title }] entries on the instructor (title from the course)
+      const list = cleanOwned(i.ipOwned), on = list.some((e) => sameName(e.code, c.code));
+      if (add && !on) { i.ipOwned = cleanOwned([...list, { code: c.code, title: c.name }]); did = true; }
+      if (!add && on) { i.ipOwned = list.filter((e) => !sameName(e.code, c.code)); did = true; }
     } else {
       const on = listsQualified(i, c);
       if (add && !on) { i.qualified = [...splitList(i.qualified || ''), c.code].filter(Boolean).join(', '); did = true; }
@@ -671,12 +679,32 @@ app.post('/api/courses/bulk-assign', wrap((req) => {
     if (did) { changed++; if (role === 'teaching') c.updated = new Date().toISOString(); } else unchanged++;
   }
   if (changed) {
-    const what = { teaching: 'as instructors', author: 'as Course Authors', qualified: 'as Qualified to teach' }[role];
+    const what = { teaching: 'as instructors', author: 'as Course Authors', qualified: 'as Qualified to teach', ipowned: 'as IP owners' }[role];
     log(`${add ? 'Assigned' : 'Removed'} ${insts.length} instructor${insts.length === 1 ? '' : 's'} ${what} ${add ? 'to' : 'from'} ${courses.length} course${courses.length === 1 ? '' : 's'}`);
     if (role === 'teaching') syncInstructors(d);
     save();
   }
   return { changed, unchanged, courses: courses.length, instructors: insts.length };
+}));
+/**
+ * Set which instructors own a course's IP (admins): { owners: [instructor names] }. Kept in step with each instructor's
+ * "IP Owned" list: the course (code and title) is added for new owners and taken off for removed ones.
+ */
+app.put('/api/courses/:id/ip-owners', wrap((req) => {
+  if (req.user.role !== 'Admin') throw new HttpError(403, 'Only admins can change who owns a course’s IP.');
+  const d = load(), c = d.courses.find((x) => x.id === req.params.id);
+  if (!c) throw new HttpError(404, 'Course not found.');
+  const want = new Set((Array.isArray(req.body.owners) ? req.body.owners : []).map((n) => String(n).trim().toLowerCase()).filter(Boolean));
+  const unknown = [...want].filter((n) => !d.instructors.some((i) => i.name.trim().toLowerCase() === n));
+  if (unknown.length) throw new HttpError(422, `Not in the instructor list: ${unknown.join(', ')}.`);
+  let changed = 0;
+  for (const i of d.instructors) {
+    const should = want.has(i.name.trim().toLowerCase()), has = ownsIp(i, c);
+    if (should && !has) { i.ipOwned = cleanOwned([...cleanOwned(i.ipOwned), { code: c.code, title: c.name }]); changed++; }
+    if (!should && has) { i.ipOwned = cleanOwned(i.ipOwned).filter((e) => !sameName(e.code, c.code)); changed++; }
+  }
+  if (changed) { log(`IP owners of ${c.code} updated`); save(); }
+  return withAuthors(c, d);
 }));
 app.delete('/api/courses/:id', wrap((req, res) => {
   const d = load(), i = d.courses.findIndex((x) => x.id === req.params.id);
@@ -706,6 +734,7 @@ function cleanInstructor(body) {
   for (const k of ['name', 'email', 'phone']) if (k in x) x[k] = String(x[k] ?? '').trim();
   if (x.email) x.email = x.email.replace(/^mailto:/i, '');
   if ('extra' in x) x.extra = cleanExtra(x.extra, customFieldsOf(load(), 'instructors'));
+  if ('ipOwned' in x) x.ipOwned = cleanOwned(x.ipOwned); // courses they developed: [{ code, title }]
   return x;
 }
 function validateInstructor(x, id) {
@@ -821,7 +850,7 @@ function batchAccounts(d, c) {
 // sign-ins for the instructors who don't have one yet
 app.post('/api/instructors/accounts', wrap(() => { const d = load(), accounts = instructorAccounts(d, d.instructors); save(); return { accounts }; }));
 app.post('/api/instructors', wrap((req, res) => {
-  const x = { phone: '', location: '', travel: '', vendor: '', platforms: [], portfolio: '', product: '', skills: '', canTeach: '', qualified: '', languages: '', rating: '', comments: '', ...cleanInstructor(req.body) };
+  const x = { phone: '', location: '', travel: '', vendor: '', platforms: [], portfolio: '', product: '', skills: '', canTeach: '', qualified: '', ipOwned: [], languages: '', rating: '', comments: '', ...cleanInstructor(req.body) };
   validateInstructor(x);
   const chosen = signInPassword(req.body, x.email);
   x.id = uid('i'); x.created = isoDay(Date.now()); load().instructors.unshift(x); log(`Instructor ${x.name} added`); assignCourses(load(), x.name, req.body.assign);
@@ -908,6 +937,7 @@ function mergeInstructor(d, gone, keep) {
   // details: keep's own win; empty ones come from the other profile, lists are joined
   for (const k of ['email', 'phone', 'location', 'travel', 'vendor', 'portfolio', 'product', 'languages', 'rating', 'signature']) if ((keep[k] === '' || keep[k] == null) && gone[k]) keep[k] = gone[k];
   keep.platforms = [...new Set([...(keep.platforms || []), ...(gone.platforms || [])])];
+  keep.ipOwned = cleanOwned([...cleanOwned(keep.ipOwned), ...cleanOwned(gone.ipOwned)]);
   for (const k of ['skills', 'canTeach', 'qualified']) keep[k] = [...new Set(splitList(keep[k]).concat(splitList(gone[k])))].join(', ');
   if (gone.comments && !String(keep.comments || '').includes(gone.comments)) keep.comments = [keep.comments, gone.comments].filter(Boolean).join('\n');
   keep.extra = { ...(gone.extra || {}), ...(keep.extra || {}) };

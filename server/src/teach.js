@@ -6,10 +6,10 @@ import multer from 'multer';
 import { overview, scope, studentsOf, analytics, certificatesOf, reviewOut, teachingCourses, authoredCourses, qualifiedCourses, isAuthor, listsQualified, isoDay, certSigners } from './learning.js';
 import { certificatePdf } from './pdf.js';
 import { ensureStudent } from './learn.js';
-import { phoneOk, PHONE_MSG } from './constants.js';
+import { phoneOk, PHONE_MSG, cleanOwned } from './constants.js';
 import { announcementsFor } from './settings.js';
 
-const PROFILE_FIELDS = ['name', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'languages', 'comments'];
+const PROFILE_FIELDS = ['name', 'phone', 'location', 'travel', 'vendor', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'ipOwned', 'languages', 'comments'];
 const safeName = (n) => path.basename(String(n)).replace(/[^\w.\-() ]+/g, '_').slice(-120) || 'file';
 
 /** Why a signature can't be stored ('' when it can): it must be a real PNG/JPEG data URL of 300 KB or less; empty removes it. */
@@ -207,7 +207,7 @@ export function mountTeach(app, { wrap, HttpError, load, save, uid, log, dataDir
   app.put('/api/teach/profile', wrap((req) => {
     const { d, inst } = teacher(req), f = {};
     const next = { ...inst };
-    for (const k of PROFILE_FIELDS) if (k in req.body) next[k] = k === 'platforms' ? (Array.isArray(req.body[k]) ? req.body[k] : String(req.body[k]).split(/[,;]/)).map((s) => String(s).trim()).filter(Boolean) : String(req.body[k] ?? '').trim();
+    for (const k of PROFILE_FIELDS) if (k in req.body) next[k] = k === 'ipOwned' ? cleanOwned(req.body[k]) : k === 'platforms' ? (Array.isArray(req.body[k]) ? req.body[k] : String(req.body[k]).split(/[,;]/)).map((s) => String(s).trim()).filter(Boolean) : String(req.body[k] ?? '').trim();
     if (!next.name) f.name = 'Name is required.';
     if (!phoneOk(next.phone)) f.phone = PHONE_MSG;
     if (Object.keys(f).length) throw new HttpError(422, 'Fix the highlighted fields.', f);
