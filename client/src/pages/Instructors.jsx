@@ -182,7 +182,7 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
         ? <>
             {/* the instructor's page: their details to edit on the left, the courses they're assigned to on the right */}
             <div className="iv-cols"><div className="iv-left">{dirty && <p className="note iv-unsaved" role="status"><Icon name="alert" small />You have unsaved changes.</p>}{formEl}{sigEl}</div>
-              <aside className="iv-right"><AssignedCourses name={record.name} all /></aside></div>
+              <aside className="iv-right"><AssignedCourses name={record.name} all editable /></aside></div>
             <WhoRated x={record} />
           </>
         : <>{formEl}{sigEl}</>}
@@ -245,17 +245,72 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
   );
 }
 
-/** The courses an instructor is assigned to in Hazdemy (details page, pop-up and edit page). `all`: list every one (page side column). */
-function AssignedCourses({ name, leave, all }) {
-  const { courses } = useData();
-  const taught = courses.filter((c) => (c.instructors || []).some((n) => n.trim().toLowerCase() === name.trim().toLowerCase()));
+/**
+ * The courses an instructor is assigned to in Hazdemy (details pop-up, and the side column of their page).
+ * `all`: list every one. `editable` (their page): add them to another course, or remove them from one; this saves
+ * straight away on the course (who teaches a course lives on the course), separately from "Save changes".
+ */
+function AssignedCourses({ name, leave, all, editable }) {
+  const { courses, reload } = useData();
+  const toast = useToast();
+  const same = (n) => n.trim().toLowerCase() === name.trim().toLowerCase();
+  const taught = courses.filter((c) => (c.instructors || []).some(same));
   const shown = all ? taught : taught.slice(0, 8);
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [remove, setRemove] = useState(null); // the course to take them off, while confirming
+  const box = useRef(null);
+  useEffect(() => {
+    if (!editable) return undefined;
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
+  }, [editable]);
+  const s = q.trim().toLowerCase();
+  const addable = editable ? courses.filter((c) => !(c.instructors || []).some(same) && (!s || [c.code, c.name, c.platform, c.product, c.customFor].join(' ').toLowerCase().includes(s))).slice(0, 30) : [];
+  const assign = async (c, on) => {
+    setBusy(c.id);
+    try {
+      const list = on ? [...(c.instructors || []), name] : (c.instructors || []).filter((n) => !same(n));
+      await api.put('/api/courses/' + c.id, { instructors: list });
+      await reload(['courses', 'activity', 'ratings']);
+      toast(on ? `${name} added to ${c.code}` : `${name} removed from ${c.code}`);
+      if (on) { setQ(''); setOpen(false); }
+    } catch (x) { toast(x.message); } finally { setBusy(''); setRemove(null); }
+  };
   return (
     <div className={`tile${all ? ' iv-courses' : ''}`}><span>Assigned in Hazdemy ({taught.length})</span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-        {taught.length ? shown.map((c) => <Link key={c.id} to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>) : <span className="note">No courses assigned yet</span>}
+      {editable && (
+        <div className="picker iv-add" ref={box}>
+          <label className="pick-in" htmlFor="ivAddQ"><Icon name="plus" small /><span className="sr">Add {name} to a course</span>
+            <input id="ivAddQ" placeholder="Add to a course: search code or name…" autoComplete="off" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} /></label>
+          {open && (
+            <div className="pick-pop"><div className="pick-list" role="listbox" aria-label="Courses to add">
+              {addable.length ? addable.map((c) => (
+                <button key={c.id} type="button" className="iv-opt" disabled={!!busy} onClick={() => assign(c, true)}>
+                  <span className="code">{c.code}</span><span className="iv-opt-n">{c.name}{c.customFor && <span className="note"> · for {c.customFor}</span>}</span>
+                  <span className="iv-opt-a">{busy === c.id ? 'Adding…' : <><Icon name="plus" small />Add</>}</span>
+                </button>
+              )) : <p className="note" style={{ padding: 14, margin: 0 }}>{s ? `No other course matches “${q}”.` : `${name} is on every course.`}</p>}
+            </div></div>
+          )}
+        </div>
+      )}
+      <div className={editable ? 'iv-clist' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+        {taught.length ? shown.map((c) => (
+          <div key={c.id} className={editable ? 'iv-crow' : undefined} style={editable ? undefined : { display: 'contents' }}>
+            <Link to={'/courses/' + c.id} onClick={leave}><span className="code">{c.code}</span> {c.name}</Link>
+            {editable && <button type="button" className="iv-rm" onClick={() => setRemove(c)} disabled={!!busy} aria-label={`Remove ${name} from ${c.code}`} title={`Remove from ${c.code}`}><Icon name="x" small /></button>}
+          </div>
+        )) : <span className="note">No courses assigned yet</span>}
         {taught.length > shown.length && <Link to={'/courses?instructor=' + encodeURIComponent(name)} onClick={leave} className="linkbtn" style={{ alignSelf: 'flex-start', fontSize: 13 }}>+{taught.length - 8} more · see all {taught.length} on Courses →</Link>}
-      </div></div>
+      </div>
+      {editable && <Confirm open={!!remove} busy={busy === remove?.id} title="Remove from this course?" confirmLabel="Remove"
+        message={remove ? `${name} will no longer be an instructor of ${remove.code} ${remove.name}.${(remove.schedules || []).some((b) => b.instructor && same(b.instructor)) ? ' Batches they run on it keep their name until you change them on the course.' : ''}` : ''}
+        onClose={() => setRemove(null)} onConfirm={() => assign(remove, false)} />}
+    </div>
   );
 }
 
