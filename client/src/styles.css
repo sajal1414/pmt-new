@@ -2451,3 +2451,74 @@ td.imp-off{opacity:.38}
 .iv-opt-n{line-height:1.35}
 .iv-opt-a{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:600;color:var(--accent-ink)}
 @media (max-width:1000px){.iv-clist{max-height:none}}
+/* ---------- instructor page: Courses panel (Teaching · Qualified · Author) and grouped form ---------- */
+.iv-panel{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.iv-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft)}
+.iv-tabs button{display:flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 8px;border:0;border-radius:9px;background:transparent;color:var(--ink-2);font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;min-width:0}
+.iv-tabs button:hover{color:var(--ink)}
+.iv-tabs button.on{background:var(--surface);color:var(--accent-ink);box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px var(--line)}
+.iv-tabs .n{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);font-size:11.5px;display:inline-grid;place-items:center}
+.iv-tabs button.on .n{background:var(--accent-soft);color:var(--accent-ink)}
+.iv-blurb{margin:0;font-size:12.5px;line-height:1.45}
+.iv-panel .iv-add{margin:0}
+.iv-panel .iv-clist{display:flex;flex-direction:column;gap:2px;max-height:calc(100vh - 330px);min-height:120px;overflow:auto;margin:0 -6px;padding:0 4px}
+.iv-panel .iv-crow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 8px;border-radius:10px}
+.iv-panel .iv-crow:hover{background:var(--surface-2)}
+.iv-panel .iv-crow a,.iv-panel .iv-ext{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:baseline;line-height:1.35;color:var(--ink);text-decoration:none;font-size:13.5px}
+.iv-panel .iv-crow a:hover span:last-child{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
+.iv-panel .iv-crow .code{font-size:11px}
+.iv-panel .iv-crow.ext .iv-ext{color:var(--warn-ink)}
+.iv-crow-end{display:inline-flex;align-items:center;gap:6px}
+.iv-b{height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;background:var(--line-soft);color:var(--ink-2);white-space:nowrap}
+.iv-b.ok{background:var(--ok-soft,#e7f6ee);color:var(--ok-ink,#11734b)}
+.iv-b.acc{background:var(--accent-soft);color:var(--accent-ink)}
+.iv-assign{height:26px;padding:0 10px;font-size:12px}
+.iv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:28px 10px;color:var(--muted);text-align:center;font-size:13px}
+.iv-empty .i{opacity:.5}
+.iv-sec{display:flex;align-items:center;gap:8px;margin:10px 0 -2px;padding-top:12px;border-top:1px solid var(--line-soft);font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--accent-ink)}
+.form .iv-sec:first-child{margin-top:0;padding-top:0;border-top:0}
+@media (max-width:1000px){.iv-panel .iv-clist{max-height:none}}
+/* Delivery languages picker */
+.lang-box{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:42px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:text}
+.lang-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.lang-box input{flex:1;min-width:140px;border:0;outline:none;background:transparent;color:var(--ink);height:28px;font:inherit}
+.lang-pop{top:calc(100% + 6px);background:var(--surface)}
+.lang-pop .pick-list{max-height:260px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));padding:6px;gap:2px}
+.lang-opt{display:flex;align-items:center;gap:6px;padding:8px 10px;border:0;border-radius:8px;background:transparent;text-align:left;color:var(--ink);cursor:pointer;font-size:13.5px}
+.lang-opt:hover{background:var(--surface-2);color:var(--accent-ink)}
+.lang-opt.add{grid-column:1/-1;color:var(--accent-ink);font-weight:600}
+.lang-pick{position:relative;z-index:4}
+.lang-box .ichip button{border:0;background:none;color:var(--muted);cursor:pointer;padding:0;display:grid;place-items:center}
+.lang-box .ichip button:hover{color:var(--red-ink)}
+.lang-pop{min-width:320px}
+.lang-pop .pick-list{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+/* Courses panel colours: Teaching = green, Author = brand red, Qualified = violet (tab, count, badges, active list) */
+:root{--vio:#6D28D9;--vio-ink:#5B21B6;--vio-soft:#F1EAFE;--vio-line:#D9C8FB}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--vio:#A78BFA;--vio-ink:#C4B5FD;--vio-soft:#2A1F45;--vio-line:#4C3A7A}}
+:root[data-theme="dark"]{--vio:#A78BFA;--vio-ink:#C4B5FD;--vio-soft:#2A1F45;--vio-line:#4C3A7A}
+.iv-c-teaching{--c:var(--ok);--c-ink:var(--ok-ink);--c-soft:var(--ok-soft);--c-line:var(--ok-line)}
+.iv-c-author{--c:var(--accent);--c-ink:var(--accent-ink);--c-soft:var(--accent-soft);--c-line:var(--accent-line)}
+.iv-c-qualified{--c:var(--vio);--c-ink:var(--vio-ink);--c-soft:var(--vio-soft);--c-line:var(--vio-line)}
+/* tabs: icon and count always in the list's colour; the open tab filled with it */
+.iv-tabs button .i{color:var(--c-ink)}
+.iv-tabs button .n{background:var(--c-soft);color:var(--c-ink)}
+.iv-tabs button.on{background:var(--c-soft);color:var(--c-ink);box-shadow:inset 0 0 0 1px var(--c-line)}
+.iv-tabs button.on .n{background:var(--c);color:#fff}
+/* the open list: coloured edge, add box and row hover */
+.iv-panel{border-top:3px solid var(--c)}
+.iv-panel .iv-add .pick-in:focus-within{border-color:var(--c);box-shadow:0 0 0 3px var(--c-soft)}
+.iv-panel .iv-add .pick-in .i{color:var(--c-ink)}
+.iv-panel .iv-crow{border-left:3px solid transparent}
+.iv-panel .iv-crow:hover{background:var(--c-soft);border-left-color:var(--c)}
+.iv-panel .iv-empty .i{color:var(--c);opacity:.7}
+.iv-panel .iv-opt-a{color:var(--c-ink)}
+/* badges on a row: the colour of the list they point to */
+.iv-b.iv-c-teaching,.iv-b.iv-c-author,.iv-b.iv-c-qualified{background:var(--c-soft);color:var(--c-ink);box-shadow:inset 0 0 0 1px var(--c-line)}
+.iv-assign{border-color:var(--ok-line);color:var(--ok-ink)}
+.iv-assign:hover{background:var(--ok-soft)}
+/* Courses panel: Author = blue, Qualified = amber (Teaching stays green) */
+:root{--blu:#2563EB;--blu-ink:#1D4ED8;--blu-soft:#EAF1FF;--blu-line:#BFD3FE;--amb:#D97706;--amb-ink:#B45309;--amb-soft:#FFF5E1;--amb-line:#FBD9A0}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--blu:#60A5FA;--blu-ink:#93C5FD;--blu-soft:#172A4A;--blu-line:#2D4C80;--amb:#F59E0B;--amb-ink:#FCD34D;--amb-soft:#3A2A0C;--amb-line:#6B4E16}}
+:root[data-theme="dark"]{--blu:#60A5FA;--blu-ink:#93C5FD;--blu-soft:#172A4A;--blu-line:#2D4C80;--amb:#F59E0B;--amb-ink:#FCD34D;--amb-soft:#3A2A0C;--amb-line:#6B4E16}
+.iv-c-author{--c:var(--blu);--c-ink:var(--blu-ink);--c-soft:var(--blu-soft);--c-line:var(--blu-line)}
+.iv-c-qualified{--c:var(--amb);--c-ink:var(--amb-ink);--c-soft:var(--amb-soft);--c-line:var(--amb-line)}

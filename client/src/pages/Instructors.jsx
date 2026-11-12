@@ -9,13 +9,14 @@ import { TRAVEL, uniq, splitList, initials } from '../lib/constants.js';
 import SignaturePad from '../teach/SignaturePad.jsx';
 import { useCustomFields } from '../lib/customFields.js';
 import InstructorAccounts, { TempPassword } from '../components/InstructorAccounts.jsx';
+import LanguagePicker from '../components/LanguagePicker.jsx';
 
-const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'vendor', 'travel', 'languages', 'rating', 'comments'];
+const EXPORT_KEYS = ['name', 'email', 'phone', 'location', 'platforms', 'portfolio', 'product', 'skills', 'canTeach', 'qualified', 'vendor', 'travel', 'languages', 'comments'];
 const FIELDS = [
   ['name', 'Name', 'text', '', true], ['email', 'Email', 'email'], ['phone', 'Telephone', 'tel', '', false, 'e.g. +91 98765 43210'], ['location', 'Location'], ['travel', 'Travel preference', 'select'], ['vendor', 'Vendor'],
   ['platformsText', 'Platform', 'text', '', false, 'e.g. Data & AI, Security'], ['portfolio', 'Portfolio'], ['product', 'Product'],
   ['skills', 'Skills / products', 'text', 'full', false, 'watsonx Orchestrate, DataStage, …'], 
-  ['languages', 'Delivery languages', 'text', '', false, 'e.g. English, German'], ['rating', 'Client feedback (0–5)', 'number'], ['comments', 'Comments', 'textarea', 'full']
+  ['languages', 'Delivery languages', 'text', '', false, 'e.g. English, German'], ['comments', 'Comments', 'textarea', 'full']
 ];
 
 /**
@@ -132,7 +133,12 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
   const [sig, setSig] = useState(null); // the instructor's certificate signature (edit only), loaded on open
   const custom = useCustomFields().instructors;
   const { courses } = useData();
-  const fill = (r) => { const v = r ? { ...r, canTeach: r.canTeach || '', qualified: r.qualified || '', password: '', platformsText: (r.platforms || []).join(', ') } : { vendor: 'IBM', ...preset }; setF(v); setBase(v); setErr({}); setAssign(true); };
+  const fill = (r) => {
+    const v = r ? { ...r, canTeach: r.canTeach || '', qualified: r.qualified || '', password: '', platformsText: (r.platforms || []).join(', ') } : { vendor: 'IBM', ...preset };
+    // on the page the course lists are edited (and saved) in the Courses panel, so the form leaves them alone
+    if (page) { delete v.canTeach; delete v.qualified; }
+    setF(v); setBase(v); setErr({}); setAssign(true);
+  };
   useEffect(() => { setSig(null); if (open && record) api.get(`/api/instructors/${record.id}/signature`).then((r) => setSig(r.signature || '')).catch(() => setSig('')); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // refill when a different instructor is opened (not on every data reload, which would wipe unsaved typing)
   useEffect(() => { if (open) fill(record); }, [open, record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -145,8 +151,9 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
     // (being a Course Author means owning the content, not teaching it, so that list doesn't assign anyone)
     const find = (t) => courses.find((c) => c.code.toLowerCase() === t.toLowerCase() || c.name.toLowerCase() === t.toLowerCase());
     const before = new Set(splitList(record?.qualified).map((t) => find(t)?.id).filter(Boolean));
-    const fresh = splitList(f.qualified).map(find).filter((c) => c && !before.has(c.id));
-    const body = { ...f, platforms: splitList(f.platformsText), assign: assign ? fresh.map((c) => c.id) : [] };
+    const fresh = page ? [] : splitList(f.qualified).map(find).filter((c) => c && !before.has(c.id));
+    const { accounts: _a, ...fields } = f; // (never send back a previous sign-in reply)
+    const body = { ...fields, platforms: splitList(f.platformsText), assign: assign ? fresh.map((c) => c.id) : [] };
     try {
       const saved = record ? await api.put('/api/instructors/' + record.id, body) : await api.post('/api/instructors', body);
       if (page) fill(saved); // the page stays open, showing what was saved
@@ -158,13 +165,20 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
   const formEl = (
       <form id="instrForm" className="form" noValidate onSubmit={submit}>
         {FIELDS.map(([k, label, type = 'text', cls = '', req = false, ph]) => (
-          <Field key={k} id={'in-' + k} label={label} type={type} options={type === 'select' ? TRAVEL : undefined} className={cls} required={req} placeholder={ph} step={k === 'rating' ? '0.1' : undefined}
+          <Field key={k} id={'in-' + k} label={label} type={type} options={type === 'select' ? TRAVEL : undefined} className={cls} required={req} placeholder={ph}
             value={f[k]} error={err[k]} onChange={(v) => setF((s) => ({ ...s, [k]: v }))} />
-        )).flatMap((el) => (el.key === 'skills' ? [el,
-          <CoursePicker key="canTeach" id="cpAuthor" label="Course Author" hint="Courses whose content they own." value={f.canTeach} initial={record?.canTeach} instructorName={f.name}
-            onChange={(v) => setF((s) => ({ ...s, canTeach: v }))} />,
-          <CoursePicker key="qualified" id="cpQualified" label="Qualified to teach" hint="Courses they can teach, without necessarily owning the content." value={f.qualified} initial={record?.qualified} instructorName={f.name}
-            assign={assign} onAssign={setAssign} onChange={(v) => setF((s) => ({ ...s, qualified: v }))} />] : [el]))}
+        )).flatMap((el) => {
+          // on the page: the fields in groups; the course lists live in the Courses panel instead
+          // Delivery languages: a picker with a list of languages (still saved as "English, Hindi")
+          if (el.key === 'languages') el = <LanguagePicker key="languages" id="in-languages" value={f.languages} onChange={(v) => setF((s) => ({ ...s, languages: v }))} />;
+          if (page) { const head = { name: ['user', 'Contact'], platformsText: ['layers', 'Expertise'], comments: ['msg', 'Notes'] }[el.key]; return head ? [<h3 key={'h-' + el.key} className="full iv-sec"><Icon name={head[0]} small />{head[1]}</h3>, el] : [el]; }
+          return el.key === 'skills' ? [el,
+            <CoursePicker key="canTeach" id="cpAuthor" label="Course Author" hint="Courses whose content they own." value={f.canTeach} initial={record?.canTeach} instructorName={f.name}
+              onChange={(v) => setF((s) => ({ ...s, canTeach: v }))} />,
+            <CoursePicker key="qualified" id="cpQualified" label="Qualified to teach" hint="Courses they can teach, without necessarily owning the content." value={f.qualified} initial={record?.qualified} instructorName={f.name}
+              assign={assign} onAssign={setAssign} onChange={(v) => setF((s) => ({ ...s, qualified: v }))} />] : [el];
+        })}
+        {page && <h3 className="full iv-sec"><Icon name="lock" small />Sign-in &amp; certificate</h3>}
         <TempPassword id="in-password" label={record ? 'Sign-in: new temporary password' : 'Sign-in: temporary password'} value={f.password} onChange={(v) => setF((s) => ({ ...s, password: v }))} error={err.password}
           placeholder={record ? 'Leave blank to keep their current password' : 'Leave blank to make one automatically'} />
         {!record && f.name && (() => { const like = instructors.find((o) => lookAlike({ name: f.name, email: f.email }, o)); return like && <p className="note full dup-q"><Icon name="alert" small />This looks like <b>{like.name}</b>{like.email ? ` (${like.email})` : ''}, who’s already in Hazdemy. Make sure it isn’t the same person.</p>; })()}
@@ -191,7 +205,7 @@ export function InstructorForm({ open, record, preset, onClose, onSaved, page, o
         ? <>
             {/* the instructor's page: their details to edit on the left, the courses they're assigned to on the right */}
             <div className="iv-cols"><div className="iv-left">{dirty && <p className="note iv-unsaved" role="status"><Icon name="alert" small />You have unsaved changes.</p>}{formEl}{sigEl}</div>
-              <aside className="iv-right"><AssignedCourses name={record.name} all editable /></aside></div>
+              <aside className="iv-right"><CoursesPanel x={record} /></aside></div>
             <WhoRated x={record} />
           </>
         : <>{formEl}{sigEl}</>}
@@ -241,7 +255,6 @@ export function InstructorView({ x: given, onClose, onEdit, focusRated, page, on
         <Tile icon="phone" label="Telephone">{x.phone ? <a href={'tel:' + x.phone.replace(/[^\d+]/g, '')}>{x.phone}</a> : <span className="note">Not added. Click {missing ? 'Add to instructor list' : 'Edit'} to add one.</span>}</Tile>
         <Tile icon="badge" label="Vendor alignment">{x.vendor || '—'}</Tile>
         <Tile icon="plane" label="Travel preference">{x.travel || '—'}</Tile>
-        <Tile icon="star" label="Client feedback">{x.rating === '' || x.rating == null ? <span style={{ color: 'var(--ok-ink)' }}>Unrated</span> : <Feedback rating={x.rating} />}</Tile>
         <Tile icon="user" label="Learner rating">{lr ? <><Feedback rating={lr.avg} /> <span className="note">({lr.count} review{lr.count === 1 ? '' : 's'})</span></> : <span className="note">No reviews yet</span>}</Tile>
       </div>
       <Tile icon="globe" label="Delivery languages">{x.languages || '—'}</Tile>
@@ -322,6 +335,123 @@ function AssignedCourses({ name, leave, all, editable }) {
         message={remove ? `${name} will no longer be an instructor of ${remove.code} ${remove.name}.${(remove.schedules || []).some((b) => b.instructor && same(b.instructor)) ? ' Batches they run on it keep their name until you change them on the course.' : ''}` : ''}
         onClose={() => setRemove(null)} onConfirm={() => assign(remove, false)} />}
     </div>
+  );
+}
+
+/* ---------- the instructor page's "Courses" panel: Teaching · Qualified to teach · Course Author ---------- */
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+// in tab order; each list has its own colour (tab, count, badges): Teaching green, Author blue, Qualified amber
+const LISTS = {
+  teaching: { tab: 'Teaching', icon: 'book', blurb: 'Courses they’re assigned to in Hazdemy: they appear in their portal, schedule and certificates.', empty: 'Not teaching any course yet.', add: 'Assign to a course…' },
+  author: { tab: 'Author', icon: 'edit', blurb: 'Courses whose content they own.', empty: 'No courses listed yet.', add: 'Add a course they own…' },
+  qualified: { tab: 'Qualified', icon: 'badge', blurb: 'Courses they can teach, without necessarily owning the content.', empty: 'No courses listed yet.', add: 'Add a course they can teach…' }
+};
+
+/**
+ * Who teaches a course lives on the course; "Qualified to teach" and "Course Author" are lists of course codes on the
+ * instructor. All three save straight away. Badges show how the lists relate, and a qualified course they don't teach
+ * yet has an Assign button.
+ */
+function CoursesPanel({ x }) {
+  const { courses, reload } = useData();
+  const toast = useToast();
+  const [tab, setTab] = useState('teaching');
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [remove, setRemove] = useState(null); // { key, course|text } while confirming
+  const box = useRef(null);
+  useEffect(() => {
+    const out = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc); };
+  }, []);
+  useEffect(() => { setQ(''); setOpen(false); }, [tab]);
+  const byCode = (t) => courses.find((c) => sameName(c.code, t) || sameName(c.name, t));
+  const teaching = courses.filter((c) => (c.instructors || []).some((n) => sameName(n, x.name)));
+  const codes = { qualified: splitList(x.qualified).filter(Boolean), author: splitList(x.canTeach).filter(Boolean) };
+  const isTeaching = (c) => teaching.some((t) => t.id === c.id);
+  const inList = (key, c) => codes[key].some((t) => byCode(t)?.id === c.id);
+  // each list as rows: { key, c (course or null), text (what's stored) }
+  const rows = {
+    teaching: teaching.map((c) => ({ key: c.id, c })),
+    qualified: codes.qualified.map((t) => ({ key: t, c: byCode(t) || null, text: t })),
+    author: codes.author.map((t) => ({ key: t, c: byCode(t) || null, text: t }))
+  };
+  const field = { qualified: 'qualified', author: 'canTeach' };
+  const saveList = async (key, list, msg) => {
+    await api.put('/api/instructors/' + x.id, { [field[key]]: list.join(', ') });
+    await reload(['instructors', 'activity']); toast(msg);
+  };
+  const setTeaching = async (c, on) => {
+    const list = on ? [...(c.instructors || []), x.name] : (c.instructors || []).filter((n) => !sameName(n, x.name));
+    await api.put('/api/courses/' + c.id, { instructors: list });
+    await reload(['courses', 'activity', 'ratings']); toast(on ? `${x.name} assigned to ${c.code}` : `${x.name} removed from ${c.code}`);
+  };
+  const run = async (id, fn) => { setBusy(id); try { await fn(); } catch (e) { toast(e.message); } finally { setBusy(''); } };
+  const add = (c) => run(c.id, async () => {
+    if (tab === 'teaching') await setTeaching(c, true);
+    else await saveList(tab, [...codes[tab], c.code], `${c.code} added to ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}`);
+    setQ(''); setOpen(false);
+  });
+  const drop = (r) => run(r.key, async () => {
+    if (tab === 'teaching') await setTeaching(r.c, false);
+    else await saveList(tab, codes[tab].filter((t) => t !== r.text), `${r.c?.code || r.text} removed from ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}`);
+    setRemove(null);
+  });
+  const s = q.trim().toLowerCase();
+  const already = (c) => (tab === 'teaching' ? isTeaching(c) : inList(tab, c));
+  const addable = courses.filter((c) => !already(c) && (!s || [c.code, c.name, c.platform, c.product, c.customFor].join(' ').toLowerCase().includes(s))).slice(0, 30);
+  const L = LISTS[tab];
+  const badges = (c) => c && [
+    tab !== 'teaching' && isTeaching(c) && <span key="t" className="iv-b iv-c-teaching">Teaching</span>,
+    tab !== 'author' && inList('author', c) && <span key="a" className="iv-b iv-c-author">Author</span>,
+    tab !== 'qualified' && inList('qualified', c) && <span key="q" className="iv-b iv-c-qualified">Qualified</span>
+  ].filter(Boolean);
+  return (
+    <section className={`iv-panel iv-c-${tab}`} aria-label="Courses">
+      <div className="iv-tabs" role="tablist">
+        {Object.entries(LISTS).map(([k, v]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} className={`iv-c-${k}${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
+            <Icon name={v.icon} small />{v.tab}<span className="n">{rows[k].length}</span></button>
+        ))}
+      </div>
+      <p className="note iv-blurb">{L.blurb}</p>
+      <div className="picker iv-add" ref={box}>
+        <label className="pick-in" htmlFor="ivAddQ"><Icon name="plus" small /><span className="sr">{L.add}</span>
+          <input id="ivAddQ" placeholder={L.add} autoComplete="off" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }} /></label>
+        {open && (
+          <div className="pick-pop"><div className="pick-list" role="listbox" aria-label="Courses to add">
+            {addable.length ? addable.map((c) => (
+              <button key={c.id} type="button" className="iv-opt" disabled={!!busy} onClick={() => add(c)}>
+                <span className="code">{c.code}</span><span className="iv-opt-n">{c.name}{c.customFor && <span className="note"> · for {c.customFor}</span>}</span>
+                <span className="iv-opt-a">{busy === c.id ? 'Adding…' : <><Icon name="plus" small />Add</>}</span>
+              </button>
+            )) : <p className="note" style={{ padding: 14, margin: 0 }}>{s ? `No other course matches “${q}”.` : 'Every course is already in this list.'}</p>}
+          </div></div>
+        )}
+      </div>
+      <div className="iv-clist" role="tabpanel">
+        {rows[tab].length ? rows[tab].map((r) => (
+          <div key={r.key} className={`iv-crow${r.c ? '' : ' ext'}`}>
+            {r.c ? <Link to={'/courses/' + r.c.id}><span className="code">{r.c.code}</span><span>{r.c.name}</span></Link>
+              : <span className="iv-ext" title="Not a course in Hazdemy"><span className="code">?</span><span>{r.text}</span></span>}
+            <span className="iv-crow-end">
+              {badges(r.c)}
+              {tab === 'qualified' && r.c && !isTeaching(r.c) && <button type="button" className="btn sm iv-assign" disabled={!!busy} onClick={() => run(r.key, () => setTeaching(r.c, true))}>{busy === r.key ? 'Assigning…' : 'Assign'}</button>}
+              <button type="button" className="iv-rm" disabled={!!busy} onClick={() => setRemove(r)} aria-label={`Remove ${r.c?.code || r.text}`} title="Remove"><Icon name="x" small /></button>
+            </span>
+          </div>
+        )) : <div className="iv-empty"><Icon name={L.icon} /><span>{L.empty}</span></div>}
+      </div>
+      <Confirm open={!!remove} busy={!!busy} confirmLabel="Remove"
+        title={tab === 'teaching' ? 'Remove from this course?' : `Remove from ${tab === 'author' ? 'Course Author' : 'Qualified to teach'}?`}
+        message={!remove ? '' : tab === 'teaching'
+          ? `${x.name} will no longer be an instructor of ${remove.c.code} ${remove.c.name}.${(remove.c.schedules || []).some((b) => b.instructor && sameName(b.instructor, x.name)) ? ' Batches they run on it keep their name until you change them on the course.' : ''}`
+          : `${remove.c ? `${remove.c.code} ${remove.c.name}` : remove.text} is taken off this list. It doesn’t change who teaches the course.`}
+        onClose={() => setRemove(null)} onConfirm={() => drop(remove)} />
+    </section>
   );
 }
 

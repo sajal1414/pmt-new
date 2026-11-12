@@ -6,6 +6,7 @@ import { useAuth } from '../../lib/auth.jsx';
 import { useToast } from '../../lib/store.jsx';
 import { useTeach, useTeachData, Avatar, Loading, ErrorNote } from '../lib.jsx';
 import SignaturePad from '../SignaturePad.jsx';
+import LanguagePicker from '../../components/LanguagePicker.jsx';
 
 const TRAVEL = ['Can Travel', 'Virtual Only', 'In Person Only', 'Both'];
 const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -51,7 +52,7 @@ export default function Profile() {
               <Field id="p-phone" label="Telephone" type="tel" value={f.phone || ''} onChange={set('phone')} placeholder="e.g. +91 98765 43210" error={err.phone} />
               <Field id="p-loc" label="Location" value={f.location} onChange={set('location')} placeholder="City, Country" />
               <Field id="p-travel" label="Travel" type="select" options={TRAVEL} value={f.travel} onChange={set('travel')} />
-              <Field id="p-lang" label="Languages" value={f.languages} onChange={set('languages')} placeholder="English, Hindi" />
+              <LanguagePicker id="p-lang" label="Delivery languages" value={f.languages} onChange={set('languages')} />
               <Field id="p-plat" label="Platforms" value={f.platforms} onChange={set('platforms')} placeholder="Data, Security, Cloud" />
               <Field id="p-skills" className="full" label="Skills" value={f.skills} onChange={set('skills')} placeholder="DataStage, watsonx.data, QRadar…" />
               <Field id="p-can" className="full" label="Course Author (courses whose content you own)" value={f.canTeach || ''} onChange={set('canTeach')} placeholder="Course codes or names" />
